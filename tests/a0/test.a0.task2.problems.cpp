@@ -2,7 +2,6 @@
 #include "test.h"
 
 #include <iostream>
-#include <print>
 #include <numeric>
 #include <vector>
 
@@ -52,7 +51,14 @@ Test test_a0_task2_problems_numerical("a0.task2.problems.numerical", []() {
             j++;
         }
     }
-
+    //A print statement for debugging to see the target vector
+    //I got this from google gemini
+    // for (const auto& row : target) {
+    //     for (int val : row) {
+    //         std::cout << val << " ";
+    //     }
+    //     std::cout << "\n"; // New line for each row
+    // }
     std::vector<std::vector<int>> expected = {{1, 2, 0}, {4, 5, 0}, {0, 8, 9}};
 
     if (Test::differs(target[0], expected[0]) || Test::differs(target[1], expected[1]) || Test::differs(target[2], expected[2]))
@@ -73,7 +79,7 @@ Test test_a0_task2_problems_vector("a0.task2.problems.vector", []() {
     }
 
     // Use iterator to grab the last element of the vector
-    int last_element = *one_to_ten.end();
+    int last_element = *(--one_to_ten.end());
 
     // The last element is surely a 10... right?
     int expected = 10;
@@ -92,17 +98,17 @@ Test test_a0_task2_problems_boolean("a0.task2.problems.boolean", []() {
     std::vector<int> vec1, vec2, vec3;
 
     for (int i = 0; i < 20; i = i+1) vec1.emplace_back(i);
+    //0,1,2,3,4,5,6...
     for (int i = 0; i < 20; i = i+2) vec2.emplace_back(i);
+    //0,2,4,6,8,10,12...
     for (int i = 0; i < 20; i = i+3) vec3.emplace_back(i);
-
+    //0,3,6,9,12,15,18...
     int count = 0;
     for (size_t i = 0; i < vec1.size(); i++) {
-        for (size_t j = 0; j < vec2.size(); j++) {
-            for (size_t k = 0; k < vec3.size(); k++) {
-                // Check if the numbers at indices i,j,k respectively are the same
-                if ((vec1.at(i) == vec2.at(j)) == vec3.at(k)) count++;
-            }
-        }
+        int target = vec1.at(i);
+        bool in_vec2 = std::find(vec2.begin(), vec2.end(), target) != vec2.end();
+        bool in_vec3 = std::find(vec3.begin(), vec3.end(), target) != vec3.end();
+        if(in_vec2 && in_vec3) count++;
     }
 
     int expected = 4; // 0, 6, 12, 18
