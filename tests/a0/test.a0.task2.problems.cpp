@@ -2,6 +2,7 @@
 #include "test.h"
 
 #include <iostream>
+#include <print>
 #include <numeric>
 #include <vector>
 
@@ -40,8 +41,8 @@ Test test_a0_task2_problems_numerical("a0.task2.problems.numerical", []() {
     // greater than the target value. If so return true.
     // Ex) let x = 1, y = 4. y / 3 = 4 / 3 = 1.333 > 1, so x < y / 3. Return true.
 
-    int factor = 3;
-    auto helper = [&](int x, int y) { return x < (y / factor); };
+    double factor = 3.0;
+    auto helper = [&](double x, double y) { return x < (y / factor); };
 
     int j = 0;
     for (auto& v : target) {
