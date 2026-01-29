@@ -44,6 +44,7 @@ if (maek.OS === "windows") {
 	maek.options.CPPFlags.push(
 		"/O2", //optimize
 		//include paths for pre-built libraries:
+		`/I${NEST_LIBS}/glm/include`,
 		`/I${NEST_LIBS}/SDL2/include`,
 		//include directories:
 		"/Isrc", "/Ideps",
