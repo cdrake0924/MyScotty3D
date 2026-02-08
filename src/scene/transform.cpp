@@ -1,5 +1,6 @@
 
 #include "transform.h"
+#include <iostream>
 
 Mat4 Transform::local_to_parent() const {
 	return Mat4::translate(translation) * rotation.to_mat() * Mat4::scale(scale);
@@ -10,6 +11,7 @@ Mat4 Transform::parent_to_local() const {
 }
 
 Mat4 Transform::local_to_world() const {
+	// std::cout << "Function called!" << std::endl;
 	if(auto p = parent.lock()){
 		return p->local_to_world() * local_to_parent();
 	} else {
@@ -18,6 +20,7 @@ Mat4 Transform::local_to_world() const {
 }
 
 Mat4 Transform::world_to_local() const {
+	// std::cout << "Function called!" << std::endl;
 	if(auto p = parent.lock()){
 		return parent_to_local() * p->world_to_local();
 	} else {
