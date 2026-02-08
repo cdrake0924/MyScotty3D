@@ -2,11 +2,14 @@
 #include "pipeline.h"
 
 #include <iostream>
+#include <algorithm>
+#include <cmath>
 
 #include "../lib/log.h"
 #include "../lib/mathlib.h"
 #include "framebuffer.h"
 #include "sample_pattern.h"
+
 template<PrimitiveType primitive_type, class Program, uint32_t flags>
 void Pipeline<primitive_type, Program, flags>::run(std::vector<Vertex> const& vertices,
                                                    typename Program::Parameters const& parameters,
@@ -355,21 +358,58 @@ void Pipeline<p, P, flags>::rasterize_line(
 	if constexpr ((flags & PipelineMask_Interp) != Pipeline_Interp_Flat) {
 		assert(0 && "rasterize_line should only be invoked in flat interpolation mode.");
 	}
-	// A1T2: rasterize_line
+	
+	float e = 1e-5f;
+	Vec3 p1 = va.fb_position + Vec3(e, std::pow(e, 2.0f), 0.0f);
+	Vec3 p2 = vb.fb_position + Vec3(e, std::pow(e, 2.0f), 0.0f);
 
-	// TODO: Check out the block comment above this function for more information on how to fill in
-	// this function!
-	// The OpenGL specification section 3.5 may also come in handy.
-
-	{ // As a placeholder, draw a point in the middle of the line:
-		//(remove this code once you have a real implementation)
-		Fragment mid;
-		mid.fb_position = (va.fb_position + vb.fb_position) / 2.0f;
-		mid.attributes = va.attributes;
-		mid.derivatives.fill(Vec2(0.0f, 0.0f));
-		emit_fragment(mid);
+	int x0 = (int)std::floor(p1.x);
+	int y0 = (int)std::floor(p1.y);
+	int x1 = (int)std::floor(p2.x);
+	int y1 = (int)std::floor(p2.y);
+	if(x0 == x1 && y0 == y1){
+		return;
 	}
 
+	int dx = std::abs(x1 - x0);
+	int dy = std::abs(y1 - y0);
+	int x_dir = (x0 < x1) ? 1 : -1;
+	int y_dir = (y0 < y1) ? 1 : -1;
+	int error = dx - dy;
+
+	float total_dist = std::max(1.0f, (float)std::max(dx, dy));
+	float curr_step = 0.0f;
+
+	// std::cerr << "LINE START: (" << va.fb_position.x << ", " << va.fb_position.y 
+    //           << ") -> END: (" << vb.fb_position.x << ", " << vb.fb_position.y << ")" << std::endl;
+    
+    // std::cerr << "PIXEL START: (" << x0 << ", " << y0 
+    //           << ") -> PIXEL END: (" << x1 << ", " << y1 << ")" << std::endl;
+
+	while(true){
+		Fragment frag;
+		frag.fb_position.x = (float)x0 + 0.5f;
+		frag.fb_position.y = (float)y0 + 0.5f;
+
+		float t = curr_step/total_dist;
+		frag.fb_position.z = (1.0f - t) * va.fb_position.z + t * vb.fb_position.z;
+		frag.attributes = va.attributes;
+		frag.derivatives.fill(Vec2(0.0f, 0.0f));
+		emit_fragment(frag);
+
+		if(x0 == x1 && y0 == y1) break;
+
+		int e2 = 2 * error;
+		if(e2 > -dy){
+			error -= dy;
+			x0 += x_dir;
+		}
+		if(e2 < dx){
+			error += dx;
+			y0 += y_dir;
+		}
+		curr_step += 1.0f;
+	}
 }
 
 /*
