@@ -458,14 +458,85 @@ void Pipeline<p, P, flags>::rasterize_triangle(
 	//  (e.g., if you break Flat while implementing Correct, you won't get points
 	//   for Flat.)
 	if constexpr ((flags & PipelineMask_Interp) == Pipeline_Interp_Flat) {
-		// A1T3: flat triangles
-		// TODO: rasterize triangle (see block comment above this function).
+		auto edge_function = [](Vec2 const& a, Vec2 const& b, Vec2 const& c) -> float{
+			return (((c.x - a.x) * (b.y - a.y)) - ((c.y - a.y) * (b.x - a.x)));
+		};
 
-		// As a placeholder, here's code that draws some lines:
-		//(remove this and replace it with a real solution)
-		Pipeline<PrimitiveType::Lines, P, flags>::rasterize_line(va, vb, emit_fragment);
-		Pipeline<PrimitiveType::Lines, P, flags>::rasterize_line(vb, vc, emit_fragment);
-		Pipeline<PrimitiveType::Lines, P, flags>::rasterize_line(vc, va, emit_fragment);
+		auto is_top_left = [](Vec2 const& a, Vec2 const& b) -> bool{
+			Vec2 edge = b - a;
+			bool is_top = (edge.y == 0) && (edge.x > 0);
+			bool is_left = edge.y > 0;
+			return is_top || is_left;
+		};
+
+		Vec2 p0(va.fb_position.x, va.fb_position.y);
+		Vec2 p1(vb.fb_position.x, vb.fb_position.y);
+		Vec2 p2(vc.fb_position.x, vc.fb_position.y);
+
+		Vec2 e0 = p1 - p0;
+		Vec2 e1 = p2 - p0;
+		float winding = (e0.x * e1.y) - (e0.y * e1.x);
+		if(std::abs(winding) == 0) return;
+		std::cout << "Winding: " << (winding > 0 ? "CCW" : "CW") << std::endl;
+		if(winding <= 0){
+			std::swap(p1, p2);
+			winding = -winding;
+			std::cout << "Swapped to CCW" << std::endl;
+		};
+
+		float min_x = std::min({p0.x, p1.x, p2.x});
+		float min_y = std::min({p0.y, p1.y, p2.y});
+		float max_x = std::max({p0.x, p1.x, p2.x});
+		float max_y = std::max({p0.y, p1.y, p2.y});
+
+		int x_min = std::max(0, (int)std::floor(min_x));
+		int y_min = std::max(0, (int)std::floor(min_y));
+		int x_max = std::min(int(Framebuffer::MaxWidth) - 1, (int)std::ceil(max_x));
+		int y_max = std::min(int(Framebuffer::MaxWidth) - 1, (int)std::ceil(max_y));
+		if(x_min > x_max || y_min > y_max) return;
+		std::cout << "Bounding box: [" << x_min << "," << x_max << "] x [" << y_min << "," << y_max << "]" << std::endl;
+
+		bool top_left_01 = is_top_left(p0, p1);
+		bool top_left_12 = is_top_left(p1, p2);
+		bool top_left_20 = is_top_left(p2, p0);
+		std::cout << "P0 (" << p0.x << ", " << p0.y << ") | "
+				  << "P1 (" << p1.x << ", " << p1.y << ") | "
+				  << "P2 (" << p2.x << ", " << p2.y << ") | " << std::endl;
+
+		for(int y = y_min; y <= y_max; ++y){
+			for(int x = x_min; x <= x_max; ++x){
+				Vec2 point(x + 0.5f, y + 0.5f);
+
+				float w01 = edge_function(p1, p0, point);
+				float w12 = edge_function(p2, p1, point);
+				float w20 = edge_function(p0, p2, point);
+
+				bool inside_1 = (w01 > 0) || (w01 == 0 && top_left_01);
+				bool inside_2 = (w12 > 0) || (w12 == 0 && top_left_12);
+				bool inside_3 = (w20 > 0) || (w20 == 0 && top_left_20);
+
+				std::cout << "  Point (" << point.x << ", " << point.y << "): "
+                      << "w01=" << w01 << " w12=" << w12 << " w20=" << w20 
+                      << " | in1=" << inside_1 << " in2=" << inside_2 << " in3=" << inside_3 << std::endl;
+
+				if(inside_1 && inside_2 && inside_3){
+					Fragment frag;
+
+					float lambda_12 = w12 / winding;
+					float lambda_20 = w20 / winding;
+					float lambda_01 = w01 / winding;
+
+					frag.fb_position.x = point.x;
+					frag.fb_position.y = point.y;
+					frag.fb_position.z = lambda_12 * va.fb_position.z + lambda_20 * vb.fb_position.z + lambda_01 * vc.fb_position.z;
+
+					frag.attributes = va.attributes;
+					frag.derivatives.fill(Vec2(0.0f, 0.0f));
+
+					emit_fragment(frag);
+				}
+			}
+		}
 	} else if constexpr ((flags & PipelineMask_Interp) == Pipeline_Interp_Smooth) {
 		// A1T5: screen-space smooth triangles
 		// TODO: rasterize triangle (see block comment above this function).
