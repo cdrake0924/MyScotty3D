@@ -142,9 +142,7 @@ void Pipeline<primitive_type, Program, flags>::run(std::vector<Vertex> const& ve
 			// "Never" means the depth test never passes.
 			continue; //discard this fragment
 		} else if constexpr ((flags & PipelineMask_Depth) == Pipeline_Depth_Less) {
-			// "Less" means the depth test passes when the new fragment has depth less than the stored depth.
-			// A1T4: Depth_Less
-			// TODO: implement depth test! We want to only emit fragments that have a depth less than the stored depth, hence "Depth_Less".
+			if(!(f.fb_position.z < fb_depth)) continue;
 		} else {
 			static_assert((flags & PipelineMask_Depth) <= Pipeline_Depth_Always, "Unknown depth test flag.");
 		}
@@ -165,14 +163,9 @@ void Pipeline<primitive_type, Program, flags>::run(std::vector<Vertex> const& ve
 			if constexpr ((flags & PipelineMask_Blend) == Pipeline_Blend_Replace) {
 				fb_color = sf.color;
 			} else if constexpr ((flags & PipelineMask_Blend) == Pipeline_Blend_Add) {
-				// A1T4: Blend_Add
-				// TODO: framebuffer color should have fragment color multiplied by fragment opacity added to it.
-				fb_color = sf.color; //<-- replace this line
+				fb_color += sf.color * sf.opacity;
 			} else if constexpr ((flags & PipelineMask_Blend) == Pipeline_Blend_Over) {
-				// A1T4: Blend_Over
-				// TODO: set framebuffer color to the result of "over" blending (also called "alpha blending") the fragment color over the framebuffer color, using the fragment's opacity
-				// 		 You may assume that the framebuffer color has its alpha premultiplied already, and you just want to compute the resulting composite color
-				fb_color = sf.color; //<-- replace this line
+				fb_color = (sf.color * sf.opacity) + (fb_color * (1.0f - sf.opacity));
 			} else {
 				static_assert((flags & PipelineMask_Blend) <= Pipeline_Blend_Over, "Unknown blending flag.");
 			}
@@ -477,11 +470,11 @@ void Pipeline<p, P, flags>::rasterize_triangle(
 		Vec2 e1 = p2 - p0;
 		float winding = (e0.x * e1.y) - (e0.y * e1.x);
 		if(std::abs(winding) == 0) return;
-		std::cout << "Winding: " << (winding > 0 ? "CCW" : "CW") << std::endl;
+		// std::cout << "Winding: " << (winding > 0 ? "CCW" : "CW") << std::endl;
 		if(winding <= 0){
 			std::swap(p1, p2);
 			winding = -winding;
-			std::cout << "Swapped to CCW" << std::endl;
+			// std::cout << "Swapped to CCW" << std::endl;
 		};
 
 		float min_x = std::min({p0.x, p1.x, p2.x});
@@ -494,14 +487,14 @@ void Pipeline<p, P, flags>::rasterize_triangle(
 		int x_max = std::min(int(Framebuffer::MaxWidth) - 1, (int)std::ceil(max_x));
 		int y_max = std::min(int(Framebuffer::MaxWidth) - 1, (int)std::ceil(max_y));
 		if(x_min > x_max || y_min > y_max) return;
-		std::cout << "Bounding box: [" << x_min << "," << x_max << "] x [" << y_min << "," << y_max << "]" << std::endl;
+		// std::cout << "Bounding box: [" << x_min << "," << x_max << "] x [" << y_min << "," << y_max << "]" << std::endl;
 
 		bool top_left_01 = is_top_left(p0, p1);
 		bool top_left_12 = is_top_left(p1, p2);
 		bool top_left_20 = is_top_left(p2, p0);
-		std::cout << "P0 (" << p0.x << ", " << p0.y << ") | "
-				  << "P1 (" << p1.x << ", " << p1.y << ") | "
-				  << "P2 (" << p2.x << ", " << p2.y << ") | " << std::endl;
+		// std::cout << "P0 (" << p0.x << ", " << p0.y << ") | "
+		// 		  << "P1 (" << p1.x << ", " << p1.y << ") | "
+		// 		  << "P2 (" << p2.x << ", " << p2.y << ") | " << std::endl;
 
 		for(int y = y_min; y <= y_max; ++y){
 			for(int x = x_min; x <= x_max; ++x){
@@ -515,9 +508,9 @@ void Pipeline<p, P, flags>::rasterize_triangle(
 				bool inside_2 = (w12 > 0) || (w12 == 0 && top_left_12);
 				bool inside_3 = (w20 > 0) || (w20 == 0 && top_left_20);
 
-				std::cout << "  Point (" << point.x << ", " << point.y << "): "
-                      << "w01=" << w01 << " w12=" << w12 << " w20=" << w20 
-                      << " | in1=" << inside_1 << " in2=" << inside_2 << " in3=" << inside_3 << std::endl;
+				// std::cout << "  Point (" << point.x << ", " << point.y << "): "
+                //       << "w01=" << w01 << " w12=" << w12 << " w20=" << w20 
+                //       << " | in1=" << inside_1 << " in2=" << inside_2 << " in3=" << inside_3 << std::endl;
 
 				if(inside_1 && inside_2 && inside_3){
 					Fragment frag;
