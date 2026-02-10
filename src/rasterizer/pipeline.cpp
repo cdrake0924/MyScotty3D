@@ -457,14 +457,18 @@ void Pipeline<p, P, flags>::rasterize_triangle(
 
 		auto is_top_left = [](Vec2 const& a, Vec2 const& b) -> bool{
 			Vec2 edge = b - a;
-			bool is_top = (edge.y == 0) && (edge.x > 0);
-			bool is_left = edge.y > 0;
+			bool is_top = (edge.y == 0) && (edge.x < 0);
+			bool is_left = edge.y < 0;
 			return is_top || is_left;
 		};
 
 		Vec2 p0(va.fb_position.x, va.fb_position.y);
 		Vec2 p1(vb.fb_position.x, vb.fb_position.y);
 		Vec2 p2(vc.fb_position.x, vc.fb_position.y);
+
+		float z0 = va.fb_position.z;
+		float z1 = vb.fb_position.z;
+		float z2 = vc.fb_position.z;
 
 		Vec2 e0 = p1 - p0;
 		Vec2 e1 = p2 - p0;
@@ -473,6 +477,7 @@ void Pipeline<p, P, flags>::rasterize_triangle(
 		// std::cout << "Winding: " << (winding > 0 ? "CCW" : "CW") << std::endl;
 		if(winding <= 0){
 			std::swap(p1, p2);
+			std::swap(z1, z2);
 			winding = -winding;
 			// std::cout << "Swapped to CCW" << std::endl;
 		};
@@ -482,8 +487,8 @@ void Pipeline<p, P, flags>::rasterize_triangle(
 		float max_x = std::max({p0.x, p1.x, p2.x});
 		float max_y = std::max({p0.y, p1.y, p2.y});
 
-		int x_min = std::max(0, (int)std::floor(min_x));
-		int y_min = std::max(0, (int)std::floor(min_y));
+		int x_min = (int)std::floor(min_x);
+		int y_min = (int)std::floor(min_y);
 		int x_max = std::min(int(Framebuffer::MaxWidth) - 1, (int)std::ceil(max_x));
 		int y_max = std::min(int(Framebuffer::MaxWidth) - 1, (int)std::ceil(max_y));
 		if(x_min > x_max || y_min > y_max) return;
@@ -521,7 +526,7 @@ void Pipeline<p, P, flags>::rasterize_triangle(
 
 					frag.fb_position.x = point.x;
 					frag.fb_position.y = point.y;
-					frag.fb_position.z = lambda_12 * va.fb_position.z + lambda_20 * vb.fb_position.z + lambda_01 * vc.fb_position.z;
+					frag.fb_position.z = lambda_12 * z0 + lambda_20 * z1 + lambda_01 * z2;
 
 					frag.attributes = va.attributes;
 					frag.derivatives.fill(Vec2(0.0f, 0.0f));
