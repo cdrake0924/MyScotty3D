@@ -28,14 +28,19 @@ Framebuffer::Framebuffer(uint32_t width_, uint32_t height_, SamplePattern const&
 HDR_Image Framebuffer::resolve_colors() const {
 	// A1T7: resolve_colors
 	// TODO: update to support sample patterns with more than one sample.
-
 	HDR_Image image(width, height);
-
-	for (uint32_t y = 0; y < height; ++y) {
-		for (uint32_t x = 0; x < width; ++x) {
-			image.at(x, y) = color_at(x, y, 0);
+		uint32_t num_samples = static_cast<uint32_t>(sample_pattern.centers_and_weights.size());
+		for (uint32_t y = 0; y < height; ++y) {
+			for (uint32_t x = 0; x < width; ++x) {
+				Spectrum total_color = Spectrum(0.0f);
+				float total_weight = 0.0f;
+				for (uint32_t s = 0; s < num_samples; ++s) {
+					float weight = sample_pattern.centers_and_weights[s].z;
+					total_color += color_at(x, y, s) * weight;
+					total_weight += weight;
+				}
+				image.at(x, y) = (total_weight > 0.0f) ? (total_color / total_weight) : Spectrum(0.0f);
+			}
 		}
-	}
-
-	return image;
+		return image;
 }
