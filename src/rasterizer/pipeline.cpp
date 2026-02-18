@@ -450,105 +450,139 @@ void Pipeline<p, P, flags>::rasterize_triangle(
 	//  same code paths. Be aware, however, that all of them need to remain working!
 	//  (e.g., if you break Flat while implementing Correct, you won't get points
 	//   for Flat.)
-	if constexpr ((flags & PipelineMask_Interp) == Pipeline_Interp_Flat) {
-		auto edge_function = [](Vec2 const& a, Vec2 const& b, Vec2 const& c) -> float{
-			return (((c.x - a.x) * (b.y - a.y)) - ((c.y - a.y) * (b.x - a.x)));
-		};
+	auto edge_function = [](Vec2 const& a, Vec2 const& b, Vec2 const& c) -> float{
+		return (((c.x - a.x) * (b.y - a.y)) - ((c.y - a.y) * (b.x - a.x)));
+	};
 
-		auto is_top_left = [](Vec2 const& a, Vec2 const& b) -> bool{
-			Vec2 edge = b - a;
-			bool is_top = (edge.y == 0) && (edge.x < 0);
-			bool is_left = edge.y < 0;
-			return is_top || is_left;
-		};
+	auto is_top_left = [](Vec2 const& a, Vec2 const& b) -> bool{
+		Vec2 edge = b - a;
+		bool is_top = (edge.y == 0) && (edge.x < 0);
+		bool is_left = edge.y < 0;
+		return is_top || is_left;
+	};
 
-		Vec2 p0(va.fb_position.x, va.fb_position.y);
-		Vec2 p1(vb.fb_position.x, vb.fb_position.y);
-		Vec2 p2(vc.fb_position.x, vc.fb_position.y);
+	Vec2 p0(va.fb_position.x, va.fb_position.y);
+	Vec2 p1(vb.fb_position.x, vb.fb_position.y);
+	Vec2 p2(vc.fb_position.x, vc.fb_position.y);
 
-		float z0 = va.fb_position.z;
-		float z1 = vb.fb_position.z;
-		float z2 = vc.fb_position.z;
+	float z0 = va.fb_position.z;
+	float z1 = vb.fb_position.z;
+	float z2 = vc.fb_position.z;
 
-		Vec2 e0 = p1 - p0;
-		Vec2 e1 = p2 - p0;
-		float winding = (e0.x * e1.y) - (e0.y * e1.x);
-		if(std::abs(winding) == 0) return;
-		// std::cout << "Winding: " << (winding > 0 ? "CCW" : "CW") << std::endl;
-		if(winding <= 0){
-			std::swap(p1, p2);
-			std::swap(z1, z2);
-			winding = -winding;
-			// std::cout << "Swapped to CCW" << std::endl;
-		};
+	ClippedVertex const* v0 = &va;
+	ClippedVertex const* v1 = &vb;
+	ClippedVertex const* v2 = &vc;
 
-		float min_x = std::min({p0.x, p1.x, p2.x});
-		float min_y = std::min({p0.y, p1.y, p2.y});
-		float max_x = std::max({p0.x, p1.x, p2.x});
-		float max_y = std::max({p0.y, p1.y, p2.y});
+	Vec2 e0 = p1 - p0;
+	Vec2 e1 = p2 - p0;
+	float winding = (e0.x * e1.y) - (e0.y * e1.x);
+	if(std::abs(winding) == 0) return;
+	// std::cout << "Winding: " << (winding > 0 ? "CCW" : "CW") << std::endl;
+	if(winding <= 0){
+		std::swap(p1, p2);
+		std::swap(z1, z2);
+		std::swap(v1, v2);
+		winding = -winding;
+		// std::cout << "Swapped to CCW" << std::endl;
+	};
 
-		int x_min = (int)std::floor(min_x);
-		int y_min = (int)std::floor(min_y);
-		int x_max = std::min(int(Framebuffer::MaxWidth) - 1, (int)std::ceil(max_x));
-		int y_max = std::min(int(Framebuffer::MaxWidth) - 1, (int)std::ceil(max_y));
-		if(x_min > x_max || y_min > y_max) return;
-		// std::cout << "Bounding box: [" << x_min << "," << x_max << "] x [" << y_min << "," << y_max << "]" << std::endl;
+	float min_x = std::min({p0.x, p1.x, p2.x});
+	float min_y = std::min({p0.y, p1.y, p2.y});
+	float max_x = std::max({p0.x, p1.x, p2.x});
+	float max_y = std::max({p0.y, p1.y, p2.y});
 
-		bool top_left_01 = is_top_left(p0, p1);
-		bool top_left_12 = is_top_left(p1, p2);
-		bool top_left_20 = is_top_left(p2, p0);
-		// std::cout << "P0 (" << p0.x << ", " << p0.y << ") | "
-		// 		  << "P1 (" << p1.x << ", " << p1.y << ") | "
-		// 		  << "P2 (" << p2.x << ", " << p2.y << ") | " << std::endl;
+	int x_min = (int)std::floor(min_x);
+	int y_min = (int)std::floor(min_y);
+	int x_max = std::min(int(Framebuffer::MaxWidth) - 1, (int)std::ceil(max_x));
+	int y_max = std::min(int(Framebuffer::MaxWidth) - 1, (int)std::ceil(max_y));
+	if(x_min > x_max || y_min > y_max) return;
+	// std::cout << "Bounding box: [" << x_min << "," << x_max << "] x [" << y_min << "," << y_max << "]" << std::endl;
 
-		for(int y = y_min; y <= y_max; ++y){
-			for(int x = x_min; x <= x_max; ++x){
-				Vec2 point(x + 0.5f, y + 0.5f);
+	bool top_left_01 = is_top_left(p0, p1);
+	bool top_left_12 = is_top_left(p1, p2);
+	bool top_left_20 = is_top_left(p2, p0);
+	// std::cout << "P0 (" << p0.x << ", " << p0.y << ") | "
+	// 		  << "P1 (" << p1.x << ", " << p1.y << ") | "
+	// 		  << "P2 (" << p2.x << ", " << p2.y << ") | " << std::endl;
+	float dx_12 = (p1.y - p2.y) / winding; 
+	float dx_20 = (p2.y - p0.y) / winding;
+	float dx_01 = (p0.y - p1.y) / winding;
 
-				float w01 = edge_function(p1, p0, point);
-				float w12 = edge_function(p2, p1, point);
-				float w20 = edge_function(p0, p2, point);
+	float dy_12 = (p2.x - p1.x) / winding;
+	float dy_20 = (p0.x - p2.x) / winding;
+	float dy_01 = (p1.x - p0.x) / winding;
+	// std::cout << "sum_dx = (" << dx_12 + dx_20 + dx_01 << ")" 
+	// 		  << "sum_dy = (" << dy_12 + dy_20 + dy_01 << ")" << std::endl;
 
-				bool inside_1 = (w01 > 0) || (w01 == 0 && top_left_01);
-				bool inside_2 = (w12 > 0) || (w12 == 0 && top_left_12);
-				bool inside_3 = (w20 > 0) || (w20 == 0 && top_left_20);
+	for(int y = y_min; y <= y_max; ++y){
+		for(int x = x_min; x <= x_max; ++x){
+			Vec2 point(x + 0.5f, y + 0.5f);
 
-				// std::cout << "  Point (" << point.x << ", " << point.y << "): "
-                //       << "w01=" << w01 << " w12=" << w12 << " w20=" << w20 
-                //       << " | in1=" << inside_1 << " in2=" << inside_2 << " in3=" << inside_3 << std::endl;
+			float w01 = edge_function(p1, p0, point);
+			float w12 = edge_function(p2, p1, point);
+			float w20 = edge_function(p0, p2, point);
 
-				if(inside_1 && inside_2 && inside_3){
-					Fragment frag;
+			bool inside_1 = (w01 > 0) || (w01 == 0 && top_left_01);
+			bool inside_2 = (w12 > 0) || (w12 == 0 && top_left_12);
+			bool inside_3 = (w20 > 0) || (w20 == 0 && top_left_20);
 
-					float lambda_12 = w12 / winding;
-					float lambda_20 = w20 / winding;
-					float lambda_01 = w01 / winding;
+			// std::cout << "  Point (" << point.x << ", " << point.y << "): "
+			//       << "w01=" << w01 << " w12=" << w12 << " w20=" << w20 
+			//       << " | in1=" << inside_1 << " in2=" << inside_2 << " in3=" << inside_3 << std::endl;
 
-					frag.fb_position.x = point.x;
-					frag.fb_position.y = point.y;
-					frag.fb_position.z = lambda_12 * z0 + lambda_20 * z1 + lambda_01 * z2;
+			if(inside_1 && inside_2 && inside_3){
+				Fragment frag;
 
+				float lambda_12 = w12 / winding;
+				float lambda_20 = w20 / winding;
+				float lambda_01 = w01 / winding;
+
+				frag.fb_position.x = point.x;
+				frag.fb_position.y = point.y;
+				frag.fb_position.z = lambda_12 * z0 + lambda_20 * z1 + lambda_01 * z2;
+				if constexpr ((flags & PipelineMask_Interp) == Pipeline_Interp_Flat) {
 					frag.attributes = va.attributes;
 					frag.derivatives.fill(Vec2(0.0f, 0.0f));
+				} else if constexpr ((flags & PipelineMask_Interp) == Pipeline_Interp_Smooth) {
+					// A1T5: screen-space smooth triangles
+					// TODO: rasterize triangle (see block comment above this function).
+					for(size_t i = 0; i < va.attributes.size(); i++){
+						frag.attributes[i] = lambda_12 * v0->attributes[i] + 
+											 lambda_20 * v1->attributes[i] + 
+											 lambda_01 * v2->attributes[i];
 
-					emit_fragment(frag);
+						frag.derivatives[i].x = dx_12 * v0->attributes[i] +
+												dx_20 * v1->attributes[i] +
+												dx_01 * v2->attributes[i];
+						frag.derivatives[i].y = dy_12 * v0->attributes[i] +
+												dy_20 * v1->attributes[i] +
+												dy_01 * v2->attributes[i];
+					}
+				} else if constexpr ((flags & PipelineMask_Interp) == Pipeline_Interp_Correct) {
+					// A1T5: perspective correct triangles
+					// TODO: rasterize triangle (block comment above this function).
+					float interp_invw = lambda_12 * v0->inv_w + lambda_20 * v1->inv_w + lambda_01 * v2->inv_w;
+					float dx_interp_invw = dx_12 * v0->inv_w + dx_20 * v1->inv_w + dx_01 * v2->inv_w;
+					float dy_interp_invw = dy_12 * v0->inv_w + dy_20 * v1->inv_w + dy_01 * v2->inv_w;
+					for(size_t i = 0; i < va.attributes.size(); i++){
+						float interp_attr = lambda_12 * (v0->inv_w * v0->attributes[i]) + 
+											lambda_20 * (v1->inv_w * v1->attributes[i]) + 
+											lambda_01 * (v2->inv_w * v2->attributes[i]);
+						frag.attributes[i] = interp_attr / interp_invw;
+
+						float dx_derivative = dx_12 * (v0->inv_w * v0->attributes[i]) +
+											  dx_20 * (v1->inv_w * v1->attributes[i]) +
+											  dx_01 * (v2->inv_w * v2->attributes[i]);
+						float dy_derivative = dy_12 * (v0->inv_w * v0->attributes[i]) +
+											  dy_20 * (v1->inv_w * v1->attributes[i]) +
+											  dy_01 * (v2->inv_w * v2->attributes[i]);
+						frag.derivatives[i].x = (((dx_derivative * interp_invw) - (interp_attr * dx_interp_invw)) / (interp_invw * interp_invw));
+						frag.derivatives[i].y = (((dy_derivative * interp_invw) - (interp_attr * dy_interp_invw)) / (interp_invw * interp_invw));
+					}
 				}
+				emit_fragment(frag);
 			}
 		}
-	} else if constexpr ((flags & PipelineMask_Interp) == Pipeline_Interp_Smooth) {
-		// A1T5: screen-space smooth triangles
-		// TODO: rasterize triangle (see block comment above this function).
-
-		// As a placeholder, here's code that calls the Flat interpolation version of the function:
-		//(remove this and replace it with a real solution)
-		Pipeline<PrimitiveType::Lines, P, (flags & ~PipelineMask_Interp) | Pipeline_Interp_Flat>::rasterize_triangle(va, vb, vc, emit_fragment);
-	} else if constexpr ((flags & PipelineMask_Interp) == Pipeline_Interp_Correct) {
-		// A1T5: perspective correct triangles
-		// TODO: rasterize triangle (block comment above this function).
-
-		// As a placeholder, here's code that calls the Screen-space interpolation function:
-		//(remove this and replace it with a real solution)
-		Pipeline<PrimitiveType::Lines, P, (flags & ~PipelineMask_Interp) | Pipeline_Interp_Smooth>::rasterize_triangle(va, vb, vc, emit_fragment);
 	}
 }
 
