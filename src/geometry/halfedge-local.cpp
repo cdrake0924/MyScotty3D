@@ -328,11 +328,57 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::extrude_face(FaceRef f) {
  * otherwise returns the edge, post-rotation
  *
  * does not create or destroy mesh elements.
+ * A2L1
  */
 std::optional<Halfedge_Mesh::EdgeRef> Halfedge_Mesh::flip_edge(EdgeRef e) {
-	//A2L1: Flip Edge
-	
-    return std::nullopt;
+    HalfedgeRef a = e->halfedge;
+    HalfedgeRef b = a->twin;
+
+    if (a->face->boundary || b->face->boundary) return std::nullopt;
+
+    HalfedgeRef an = a->next;
+    HalfedgeRef ap = an;
+    while (ap->next != a) ap = ap->next;
+
+    HalfedgeRef bn = b->next;
+    HalfedgeRef bp = bn;
+    while (bp->next != b) bp = bp->next;
+
+    HalfedgeRef h = ap->twin;
+    do {
+        if (h->vertex == bp->vertex) return std::nullopt;
+        h = h->next->twin;
+    } while (h != ap->twin);
+
+    FaceRef f0 = a->face;
+    FaceRef f1 = b->face;
+
+    a->vertex = bn->next->vertex;
+    b->vertex = an->next->vertex;
+
+    ap->next = bn;
+    bp->next = an;
+    a->next  = an->next;
+    b->next  = bn->next;
+    bn->next = a;
+    an->next = b;
+
+    a->face = f0;
+	bn->face = f0;
+	ap->face = f0;
+
+	b->face = f1;
+	an->face = f1;
+	bp->face = f1;
+
+    f0->halfedge = a;
+    f1->halfedge = b;
+
+    for (HalfedgeRef t : {a, b, an, bn, ap, bp}) {
+		t->vertex->halfedge = t;
+	}
+
+    return e;
 }
 
 
