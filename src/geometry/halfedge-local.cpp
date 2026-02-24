@@ -221,9 +221,91 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::bisect_edge(EdgeRef e) {
  */
 std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::split_edge(EdgeRef e) {
 	// A2L2 (REQUIRED): split_edge
-	
-	(void)e; //this line avoids 'unused parameter' warnings. You can delete it as you fill in the function.
-    return std::nullopt;
+	// 1. Collect existing elements
+    HalfedgeRef h = e->halfedge;
+    HalfedgeRef t = h->twin;
+    FaceRef f0 = h->face;
+    FaceRef f1 = t->face;
+
+    if (f0->boundary && f1->boundary) return std::nullopt;
+
+    // Find "previous" halfedges to close the loops later
+    HalfedgeRef hp = h;
+    while (hp->next != h) hp = hp->next;
+
+    // Save relevant vertices and next pointers before topology changes
+    HalfedgeRef hn = h->next;
+	HalfedgeRef hnn = h->next->next;
+    HalfedgeRef tn = t->next;
+	HalfedgeRef tnn = t->next->next;
+	VertexRef old_h_vertex = h->vertex;
+	VertexRef old_hnn_vertex = hn->next->vertex;
+
+    // 2. Bisect the edge
+    // This creates the new vertex v and splits e into two edges
+    auto v_pt = bisect_edge(e);
+    if (!v_pt) return std::nullopt;
+    VertexRef v = *v_pt;
+
+    // 3. Create new elements for the split
+    // New edges and halfedges to connect v to the opposite corners
+    EdgeRef e0 = emplace_edge();
+	EdgeRef e1 = emplace_edge();
+	HalfedgeRef h00 = emplace_halfedge();
+    HalfedgeRef h01 = emplace_halfedge();
+    HalfedgeRef h10 = emplace_halfedge();
+    HalfedgeRef h11 = emplace_halfedge();
+    
+    FaceRef f2 = emplace_face(); // New face for the h-side split
+
+    // h10 and h11 form the new edge e_h
+	h00->set_tnvef(h01, h10, old_h_vertex, e0, f0);
+    e0->halfedge = h00;
+    h10->set_tnvef(h11, hnn, v, e1, f0);
+    h11->set_tnvef(h10, h, old_hnn_vertex, e1, f2);
+    e1->halfedge = h10;
+
+    // Rewire existing halfedges for Face f0 and f2
+    hn->face = f2;
+    hn->next = h11;
+    h->face = f2;
+    h->next = hn; 
+    
+    hp->next = h00;
+    f0->halfedge = h10;
+	f0->halfedge = h00;
+    f2->halfedge = h;
+	f2->halfedge = hn;
+
+    // 5. Update t-side topology (Face f1 and f3) if not boundary
+    if (!f1->boundary) {
+        EdgeRef e2 = emplace_edge();
+        HalfedgeRef h20 = emplace_halfedge();
+        HalfedgeRef h21 = emplace_halfedge();
+        FaceRef f3 = emplace_face();
+
+        VertexRef old_tnn_vertex = tnn->vertex;
+
+        h20->set_tnvef(h21, tnn, v, e2, f1);
+        h21->set_tnvef(h20, h01, old_tnn_vertex, e2, f3);
+        e2->halfedge = h20;
+		h01->set_tnvef(h00, tn, v, e0, f3);
+
+        tn->face = f3;
+        tn->next = h21;
+        t->face = f1;
+        
+        t->next = h20;
+        f1->halfedge = h20;
+        f3->halfedge = tn;
+		f3->halfedge = h01;
+		f3->halfedge = h21;
+    } else {
+		h01->set_tnvef(h00, tn, v, e0, f1);
+		t->next = h01;
+	}
+
+    return v;
 }
 
 
