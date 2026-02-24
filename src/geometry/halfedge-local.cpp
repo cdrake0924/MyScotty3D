@@ -221,7 +221,6 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::bisect_edge(EdgeRef e) {
  */
 std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::split_edge(EdgeRef e) {
 	// A2L2 (REQUIRED): split_edge
-	// 1. Collect existing elements
     HalfedgeRef h = e->halfedge;
     HalfedgeRef t = h->twin;
     FaceRef f0 = h->face;
@@ -229,81 +228,103 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::split_edge(EdgeRef e) {
 
     if (f0->boundary && f1->boundary) return std::nullopt;
 
-    // Find "previous" halfedges to close the loops later
-    HalfedgeRef hp = h;
-    while (hp->next != h) hp = hp->next;
+    HalfedgeRef h_next = h->next;
+    HalfedgeRef h_prev = h_next;
+    while (h_prev->next != h) h_prev = h_prev->next;
 
-    // Save relevant vertices and next pointers before topology changes
-    HalfedgeRef hn = h->next;
-	HalfedgeRef hnn = h->next->next;
-    HalfedgeRef tn = t->next;
-	HalfedgeRef tnn = t->next->next;
-	VertexRef old_h_vertex = h->vertex;
-	VertexRef old_hnn_vertex = hn->next->vertex;
+    HalfedgeRef t_next = t->next;
+    HalfedgeRef t_prev = t_next;
+    while (t_prev->next != t) t_prev = t_prev->next;
 
-    // 2. Bisect the edge
-    // This creates the new vertex v and splits e into two edges
-    auto v_pt = bisect_edge(e);
-    if (!v_pt) return std::nullopt;
-    VertexRef v = *v_pt;
+    HalfedgeRef h_next_next = h_next->next;
+    HalfedgeRef t_next_next = t_next->next;
+    VertexRef C0 = h_next_next->vertex;
+    VertexRef C1 = t_next_next->vertex;
 
-    // 3. Create new elements for the split
-    // New edges and halfedges to connect v to the opposite corners
-    EdgeRef e0 = emplace_edge();
-	EdgeRef e1 = emplace_edge();
-	HalfedgeRef h00 = emplace_halfedge();
-    HalfedgeRef h01 = emplace_halfedge();
-    HalfedgeRef h10 = emplace_halfedge();
-    HalfedgeRef h11 = emplace_halfedge();
-    
-    FaceRef f2 = emplace_face(); // New face for the h-side split
+    auto v_opt = bisect_edge(e);
+    if (!v_opt) return std::nullopt;
+    VertexRef v = *v_opt;
 
-    // h10 and h11 form the new edge e_h
-	h00->set_tnvef(h01, h10, old_h_vertex, e0, f0);
-    e0->halfedge = h00;
-    h10->set_tnvef(h11, hnn, v, e1, f0);
-    h11->set_tnvef(h10, h, old_hnn_vertex, e1, f2);
-    e1->halfedge = h10;
+    HalfedgeRef h_vB = v->halfedge;
+    HalfedgeRef h_Av = h;          
+    HalfedgeRef t_vA = h_Av->twin;
+    HalfedgeRef t_Bv = h_vB->twin;
 
-    // Rewire existing halfedges for Face f0 and f2
-    hn->face = f2;
-    hn->next = h11;
-    h->face = f2;
-    h->next = hn; 
-    
-    hp->next = h00;
-    f0->halfedge = h10;
-	f0->halfedge = h00;
-    f2->halfedge = h;
-	f2->halfedge = hn;
+    HalfedgeRef h_c0_prev = h_next;
+    while (h_c0_prev->next != h_next_next) h_c0_prev = h_c0_prev->next;
 
-    // 5. Update t-side topology (Face f1 and f3) if not boundary
+    EdgeRef   e0   = emplace_edge();
+    HalfedgeRef h_vc0 = emplace_halfedge();
+    HalfedgeRef h_c0v = emplace_halfedge();
+    FaceRef   f2   = emplace_face();
+
+    h_vc0->twin = h_c0v;  
+	h_c0v->twin = h_vc0;
+    h_vc0->edge = e0;     
+	h_c0v->edge = e0;
+    e0->halfedge = h_vc0;
+    h_vc0->vertex = v;
+    h_c0v->vertex = C0;
+
+    h_Av->next = h_vc0;
+    h_vc0->next = h_next_next;
+    h_vc0->face = f0;
+    f0->halfedge = h_Av;
+
+    h_c0_prev->next = h_c0v;
+    h_c0v->next = h_vB;
+    h_c0v->face = f2;
+    h_vB->face = f2;
+    {
+        HalfedgeRef cur = h_next;
+        while (cur != h_c0v) {
+            cur->face = f2;
+            cur = cur->next;
+        }
+    }
+    f2->halfedge = h_vB;
+
     if (!f1->boundary) {
-        EdgeRef e2 = emplace_edge();
-        HalfedgeRef h20 = emplace_halfedge();
-        HalfedgeRef h21 = emplace_halfedge();
-        FaceRef f3 = emplace_face();
+        HalfedgeRef t_c1_prev = t_next;
+        while (t_c1_prev->next != t_next_next) t_c1_prev = t_c1_prev->next;
 
-        VertexRef old_tnn_vertex = tnn->vertex;
+        EdgeRef     e1    = emplace_edge();
+        HalfedgeRef h_vc1 = emplace_halfedge();
+        HalfedgeRef h_c1v = emplace_halfedge();
+        FaceRef     f3    = emplace_face();
 
-        h20->set_tnvef(h21, tnn, v, e2, f1);
-        h21->set_tnvef(h20, h01, old_tnn_vertex, e2, f3);
-        e2->halfedge = h20;
-		h01->set_tnvef(h00, tn, v, e0, f3);
+        h_vc1->twin = h_c1v;  h_c1v->twin = h_vc1;
+        h_vc1->edge = e1;     h_c1v->edge = e1;
+        e1->halfedge = h_vc1;
+        h_vc1->vertex = v;
+        h_c1v->vertex = C1;
 
-        tn->face = f3;
-        tn->next = h21;
-        t->face = f1;
-        
-        t->next = h20;
-        f1->halfedge = h20;
-        f3->halfedge = tn;
-		f3->halfedge = h01;
-		f3->halfedge = h21;
-    } else {
-		h01->set_tnvef(h00, tn, v, e0, f1);
-		t->next = h01;
-	}
+        t_Bv->next = h_vc1;
+        h_vc1->next = t_next_next;
+        h_vc1->face = f1;
+        t_Bv->face = f1;
+        {
+            HalfedgeRef cur = t_next_next;
+            while (cur != t_Bv) {
+                cur->face = f1;
+                cur = cur->next;
+            }
+        }
+        f1->halfedge = t_Bv;
+
+        t_c1_prev->next = h_c1v;
+        h_c1v->next = t_vA;
+        h_c1v->face = f3;
+        t_vA->face = f3;
+        {
+            HalfedgeRef cur = t_next;
+            while (cur != h_c1v) {
+                cur->face = f3;
+                cur = cur->next;
+            }
+        }
+        f3->halfedge = t_vA;
+    }
 
     return v;
 }
