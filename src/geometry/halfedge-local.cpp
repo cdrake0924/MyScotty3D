@@ -417,8 +417,133 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::extrude_face(FaceRef f) {
 	// Reminder: This function does not update the vertex positions.
 	// Remember to also fill in extrude_helper (A2L4h)
 
-	(void)f;
-    return std::nullopt;
+	if(f->boundary) return std::nullopt;
+
+	Vec3 base_normal = f->normal();
+	if(!std::isfinite(base_normal.x) ||
+	   !std::isfinite(base_normal.y) ||
+	   !std::isfinite(base_normal.z) ||
+	   base_normal.norm() == 0.0f)
+	   base_normal = Vec3(0.0f, 0.0f, 0.0f);
+
+	std::vector<HalfedgeRef> old_h;
+	std::vector<VertexRef> old_v;
+
+	{
+		HalfedgeRef start = f->halfedge;
+		if(start == halfedges.end()) return std::nullopt;
+
+		HalfedgeRef curr = start;
+		do {
+			old_h.emplace_back(curr);
+			old_v.emplace_back(curr->vertex);
+			curr = curr->next;
+			if(old_h.size() > 100000) return std::nullopt;
+		} while(curr != start);
+	}
+
+	uint32_t n = (uint32_t)old_h.size();
+	if(n < 3) std::nullopt;
+
+	std::vector<VertexRef> new_v(n);
+
+	for (uint32_t i = 0; i < n; i++){
+		new_v[i] = emplace_vertex();
+		new_v[i]->position = old_v[i]->position;
+	}
+
+	std::vector<HalfedgeRef> h(n);
+	std::vector<EdgeRef> inner_e(n);
+
+	for (uint32_t i = 0; i < n; i++){
+		h[i] = emplace_halfedge();
+		inner_e[i] = emplace_edge(false);
+
+		h[i]->vertex = new_v[i];
+		h[i]->face = f;
+
+		h[i]->edge = inner_e[i];
+		inner_e[i]->halfedge = h[i];
+
+		h[i]->corner_normal = base_normal;
+	}
+
+	for (uint32_t i = 0; i < n; i++){
+		uint32_t i1 = (i + 1) % n;
+		h[i]->next = h[i1];
+	}
+
+	f->halfedge = h[0];
+
+	for (uint32_t i = 0; i < n; i++) new_v[i]->halfedge = h[i];
+
+	std::vector<FaceRef> quad_f(n);
+	std::vector<HalfedgeRef> q1(n), q2(n), q3(n);
+
+	for (uint32_t i = 0; i < n; i++){
+		uint32_t i1 = (i + 1) % n;
+
+		quad_f[i] = emplace_face(false);
+
+		HalfedgeRef q0 = old_h[i];
+
+		q1[i] = emplace_halfedge(); 
+		q2[i] = emplace_halfedge();
+		q3[i] = emplace_halfedge();
+
+		q0->face = quad_f[i];
+		q1[i]->face = quad_f[i];
+		q2[i]->face = quad_f[i];
+		q3[i]->face = quad_f[i];
+
+		quad_f[i]->halfedge = q0;
+
+		q1[i]->vertex = old_v[i1];
+		q2[i]->vertex = new_v[i1];
+		q3[i]->vertex = new_v[i];
+
+		q0->next = q1[i];
+		q1[i]->next = q2[i];
+		q2[i]->next = q3[i];
+		q3[i]->next = q0;
+
+		q1[i]->corner_normal = base_normal;
+		q2[i]->corner_normal = base_normal;
+		q3[i]->corner_normal = base_normal;
+
+		q0->corner_normal = base_normal;
+	}
+
+	for (uint32_t i = 0; i < n; i++){
+		h[i]->twin = q2[i];
+		q2[i]->twin = h[i];
+		q2[i]->edge = inner_e[i];
+	}
+
+
+	std::vector<EdgeRef> vert_e(n);
+	for (uint32_t i = 0; i < n; i++){
+		uint32_t ip = (i + n - 1) % n;
+
+		HalfedgeRef up = q1[ip];  
+		HalfedgeRef down = q3[i]; 
+
+		vert_e[i] = emplace_edge(false);
+
+		up->twin = down;
+		down->twin = up;
+
+		up->edge = vert_e[i];
+		down->edge = vert_e[i];
+		vert_e[i]->halfedge = up;
+	}
+
+	for (uint32_t i = 0; i < n; i++){
+		if (old_v[i]->halfedge == halfedges.end() || old_v[i]->halfedge->vertex != old_v[i])
+			old_v[i]->halfedge = old_h[i];
+	}
+
+	return f;
 }
 
 /*
@@ -753,5 +878,41 @@ void Halfedge_Mesh::extrude_positions(FaceRef face, Vec3 move, float shrink) {
 	// compute the centroid from these positions + use to shrink,
 	// offset by move
 	
+	if(face->boundary) return;
+
+	HalfedgeRef start = face->halfedge;
+	if(start == halfedges.end()) return;
+
+	std::vector<HalfedgeRef> h;
+	std::vector<VertexRef> v;
+	std::vector<Vec3> pos;
+
+	{
+		HalfedgeRef curr = start;
+		do {
+			h.emplace_back(curr);
+			v.emplace_back(curr->vertex);
+
+			HalfedgeRef htn = curr->twin->next;
+			VertexRef old_v = htn->twin->vertex;
+			pos.emplace_back(old_v->position);
+
+			curr = curr->next;
+			if(h.size() > 100000) return;
+		} while(curr != start);
+	}
+
+	size_t n = h.size();
+	if(n < 3) return;
+
+	Vec3 centroid(0.0f);
+	for(size_t i = 0; i < n; i++) centroid += pos[i];
+	centroid /= float(n);
+
+	float scale = 1.0f - shrink;
+	for(size_t i = 0; i < n; i++){
+		Vec3 p = centroid + (pos[i] - centroid) * scale + move;
+		v[i]->position = p;
+	}
 }
 
