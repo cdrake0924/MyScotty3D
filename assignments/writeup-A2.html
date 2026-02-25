@@ -20,7 +20,7 @@ You do not need any screenshots for this task.
 
 **What edge cases did you handle?**
 
-*  Answer here:
+*  Answer here: Added a check to immediately return std::nullopt if the edge is a boundary edge, as flipping a boundary edge is not a well-defined operation in this mesh structure.
 
 Your completion will be graded based on the reference `test.a2.l1.cpp` file and 
 checking that the operation works in the GUI.
@@ -31,7 +31,7 @@ You do not need any screenshots for this task.
 
 **What edge cases did you handle?**
 
-*  Answer here:
+*  Answer here: The function checks if both adjacent faces are boundaries and returns std::nullopt to prevent illegal splits. It also includes logic to specifically skip splitting a face if it is a boundary, only performing the internal split on the non-boundary side.
 
 Your completion will be graded based on the reference `test.a2.l2.cpp` file and 
 checking that the operation works in the GUI.
@@ -42,7 +42,7 @@ You do not need any screenshots for this task.
 
 **What edge cases did you handle?**
 
-*  Answer here:
+*  Answer here: Specifically handled the case where an edge lies on the boundary. This involves a more complex deletion process where a "real" triangle is removed while merging its boundary twin into the existing boundary loop.
 
 Your completion will be graded based on the reference `test.a2.l3.cpp` file and 
 checking that the operation works in the GUI.
@@ -53,7 +53,7 @@ You do not need any screenshots for this task.
 
 **What edge cases did you handle?**
 
-*  Answer here:
+*  Answer here: Prevented extrusion of boundary faces by returning std::nullopt, as extruding a "hole" is undefined. Included a check for finite and non-zero normals using std::isfinite. If a normal is invalid (degenerate face), it defaults to a zero vector to prevent math errors during the position update.
 
 Your completion will be graded based on the reference `test.a2.l4.cpp` file and 
 checking that the operation works in the GUI.
@@ -61,10 +61,13 @@ checking that the operation works in the GUI.
 (##) GenAI Use CHECKPOINT
 
 Which model(s) did you use (e.g., ChatGPT-4, Claude-2, etc.)?
+Google Gemini
 
 For what purpose(s) did you use GenAI (e.g., brainstorming, code generation, debugging, etc.)?
+Creating some test cases and describing the edge cases
 
 What was it good at? What was it bad at?
+it was good at describing what needed to happen but the code it gave was faulty
 
 (##) A2G1 FINAL
 
