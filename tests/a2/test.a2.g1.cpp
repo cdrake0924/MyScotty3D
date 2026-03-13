@@ -124,3 +124,145 @@ Test test_a2_g1_triangulate_basic_quad_cube("a2.g1.triangulate.basic.quad_cube",
 });
 
 
+/*
+EDGE CASE: mesh that is already fully triangulated.
+Triangulating a triangle mesh should be a no-op
+(same element counts, same IDs, same positions).
+*/
+Test test_a2_g1_triangulate_already_triangle("a2.g1.triangulate.already_triangle", []() {
+	// A single triangle
+	Halfedge_Mesh mesh = Halfedge_Mesh::from_indexed_faces({
+		Vec3{0.0f, 0.0f, 0.0f},
+		Vec3{1.0f, 0.0f, 0.0f},
+		Vec3{0.0f, 1.0f, 0.0f}
+	},{
+		{0, 1, 2}
+	});
+	expect_triangulate(mesh);
+});
+
+/*
+EDGE CASE: pentagon (5-sided face).
+A pentagon needs exactly 2 diagonal cuts to become 3 triangles.
+Expected: +2 edges, +2 faces.
+*/
+Test test_a2_g1_triangulate_pentagon("a2.g1.triangulate.pentagon", []() {
+	// Regular-ish pentagon in the XZ plane
+	Halfedge_Mesh mesh = Halfedge_Mesh::from_indexed_faces({
+		Vec3{ 0.0f,  0.0f,  1.0f},
+		Vec3{ 0.951f, 0.0f,  0.309f},
+		Vec3{ 0.588f, 0.0f, -0.809f},
+		Vec3{-0.588f, 0.0f, -0.809f},
+		Vec3{-0.951f, 0.0f,  0.309f}
+	},{
+		{0, 1, 2, 3, 4}
+	});
+	expect_triangulate(mesh);
+});
+
+/*
+EDGE CASE: hexagon (6-sided face).
+A hexagon needs exactly 3 diagonal cuts to become 4 triangles.
+Expected: +3 edges, +3 faces.
+*/
+Test test_a2_g1_triangulate_hexagon("a2.g1.triangulate.hexagon", []() {
+	Halfedge_Mesh mesh = Halfedge_Mesh::from_indexed_faces({
+		Vec3{ 1.0f, 0.0f,  0.0f},
+		Vec3{ 0.5f, 0.0f,  0.866f},
+		Vec3{-0.5f, 0.0f,  0.866f},
+		Vec3{-1.0f, 0.0f,  0.0f},
+		Vec3{-0.5f, 0.0f, -0.866f},
+		Vec3{ 0.5f, 0.0f, -0.866f}
+	},{
+		{0, 1, 2, 3, 4, 5}
+	});
+	expect_triangulate(mesh);
+});
+
+/*
+MIXED CASE: mesh with both triangles and quads.
+Only the quads should be split; triangles should be untouched.
+This is a simple shape: one triangle face and one quad face sharing an edge.
+*/
+Test test_a2_g1_triangulate_mixed_tri_quad("a2.g1.triangulate.mixed_tri_quad", []() {
+	// A "house" shape: a square base with a triangular roof peak sharing the top edge
+	//   v4
+	//  /  \
+	// v2 - v3
+	// |    |
+	// v0 - v1
+	Halfedge_Mesh mesh = Halfedge_Mesh::from_indexed_faces({
+		Vec3{-1.0f, 0.0f, 0.0f}, // v0
+		Vec3{ 1.0f, 0.0f, 0.0f}, // v1
+		Vec3{-1.0f, 1.0f, 0.0f}, // v2
+		Vec3{ 1.0f, 1.0f, 0.0f}, // v3
+		Vec3{ 0.0f, 2.0f, 0.0f}  // v4
+	},{
+		{0, 1, 3, 2}, // quad (the square base)
+		{2, 3, 4}     // triangle (the roof)
+	});
+	expect_triangulate(mesh);
+});
+
+/*
+MIXED CASE: mesh with multiple quads sharing vertices.
+Two quads sharing a single vertex (like an "X" seen from above).
+Both should be split independently.
+*/
+Test test_a2_g1_triangulate_two_quads("a2.g1.triangulate.two_quads", []() {
+	// Two separate quad faces that share one vertex (v4 in center)
+	// but are not connected by an edge (they share a vertex only).
+	// Use a flat mesh with two separate quad patches:
+	//  v0-v1   v5-v6
+	//  |  |    |  |
+	//  v2-v3   v7-v8
+	// (Two disconnected quads -- still a valid mesh with a single boundary loop)
+	Halfedge_Mesh mesh = Halfedge_Mesh::from_indexed_faces({
+		Vec3{-2.0f, 0.0f,  1.0f}, // v0
+		Vec3{-1.0f, 0.0f,  1.0f}, // v1
+		Vec3{-2.0f, 0.0f,  0.0f}, // v2
+		Vec3{-1.0f, 0.0f,  0.0f}, // v3
+		Vec3{ 1.0f, 0.0f,  1.0f}, // v4
+		Vec3{ 2.0f, 0.0f,  1.0f}, // v5
+		Vec3{ 1.0f, 0.0f,  0.0f}, // v6
+		Vec3{ 2.0f, 0.0f,  0.0f}  // v7
+	},{
+		{0, 1, 3, 2},
+		{4, 5, 7, 6}
+	});
+	expect_triangulate(mesh);
+});
+
+/*
+BOUNDARY CASE: a quad with a boundary face.
+The quad should be triangulated; the boundary face should be untouched.
+Boundary faces must never be triangulated.
+*/
+Test test_a2_g1_triangulate_boundary_untouched("a2.g1.triangulate.boundary_untouched", []() {
+	// A single quad (open mesh, so it has a boundary loop around the outside)
+	Halfedge_Mesh mesh = Halfedge_Mesh::from_indexed_faces({
+		Vec3{0.0f, 0.0f, 0.0f},
+		Vec3{1.0f, 0.0f, 0.0f},
+		Vec3{1.0f, 0.0f, 1.0f},
+		Vec3{0.0f, 0.0f, 1.0f}
+	},{
+		{0, 1, 2, 3}
+	});
+
+	// Record how many boundary faces exist before
+	size_t boundary_faces_before = 0;
+	for (auto f = mesh.faces.begin(); f != mesh.faces.end(); f++) {
+		if (f->boundary) boundary_faces_before++;
+	}
+
+	expect_triangulate(mesh);
+
+	// Boundary face count must not change
+	size_t boundary_faces_after = 0;
+	for (auto f = mesh.faces.begin(); f != mesh.faces.end(); f++) {
+		if (f->boundary) boundary_faces_after++;
+	}
+	if (boundary_faces_before != boundary_faces_after) {
+		throw Test::error("Triangulation should not change the number of boundary faces!");
+	}
+});

@@ -13,7 +13,81 @@
  */
 void Halfedge_Mesh::triangulate() {
 	//A2G1: triangulation
-	
+	// Collect all non-boundary faces upfront (so iteration is safe while we modify)
+	std::vector<FaceRef> to_triangulate;
+	for (FaceRef f = faces.begin(); f != faces.end(); ++f) {
+		if (!f->boundary) {
+			to_triangulate.push_back(f);
+		}
+	}
+
+	for (FaceRef f : to_triangulate) {
+		std::cout << "[triangulate] Processing face id=" << f->id << std::endl;
+		// Fan triangulation from the first vertex of the face.
+		// For a face with halfedges h0 -> h1 -> h2 -> ... -> h_{n-1} -> h0,
+		// we repeatedly "cut off" a triangle at the front: [h0->vertex, h1->vertex, h2->vertex]
+		// leaving a smaller polygon.
+
+		// Keep slicing until the face is a triangle.
+		while (true) {
+			// Count edges in face
+			HalfedgeRef h0 = f->halfedge;
+			HalfedgeRef h1 = h0->next;
+			HalfedgeRef h2 = h1->next;
+			if (h2->next == h0) break; // already a triangle
+
+			// Create new diagonal edge: from h0->vertex to h2->vertex
+			// This diagonal splits f into:
+			//   triangle: h0, h1, new_he_back  (new face tri)
+			//   polygon:  new_he_fwd, h2, ..., h_{n-1}  (stays in f)
+
+			EdgeRef new_edge = emplace_edge();
+			HalfedgeRef new_he_fwd = emplace_halfedge(); // lives in the new triangle, pointing h2->vertex -> h0->vertex
+			HalfedgeRef new_he_back = emplace_halfedge(); // lives in remaining polygon, pointing h0->vertex -> h2->vertex
+			FaceRef new_tri = emplace_face();
+
+			// The new triangle face uses: h0, h1, new_he_fwd
+			// new_he_fwd points from h2->vertex to h0->vertex (closes the triangle)
+			// new_he_back points from h0->vertex to h2->vertex (opening of remaining polygon)
+
+			// Assign new edge halfedges
+			new_edge->halfedge = new_he_fwd;
+
+			// Set up new_he_fwd (inside the new triangle)
+			new_he_fwd->set_tnvef(new_he_back, h0, h2->vertex, new_edge, new_tri);
+
+			// Set up new_he_back (inside the remaining polygon f)
+			new_he_back->set_tnvef(new_he_fwd, h2, h0->vertex, new_edge, f);
+
+			// Update h0 and h1 to be in new_tri
+			h0->face = new_tri;
+			h1->face = new_tri;
+			h1->next = new_he_fwd; // close the triangle
+
+			// new_tri starts at h0
+			new_tri->halfedge = h0;
+
+			// Remaining polygon: new_he_back -> h2 -> ... -> h_{n-1} -> h0 (now h0 is NOT in f)
+			// Find h_{n-1}: last halfedge that points back to h0
+			HalfedgeRef last = h2;
+			while (last->next != h0) last = last->next;
+			last->next = new_he_back;
+
+			// f now starts at new_he_back
+			f->halfedge = new_he_back;
+
+			// std::cout << "  new_tri halfedges: v" << h0->vertex->id
+			//           << " -> v" << h1->vertex->id
+			//           << " -> v" << new_he_fwd->vertex->id
+			//           << " -> (back to v" << h0->vertex->id << ")" << std::endl;
+			// std::cout << "  remaining f halfedges: v" << new_he_back->vertex->id
+			//           << " -> v" << h2->vertex->id << " -> ..." << std::endl;
+
+			// Interpolate corner data for new halfedges
+			interpolate_data({HalfedgeCRef(h1), HalfedgeCRef(h2)}, new_he_fwd);
+			interpolate_data({HalfedgeCRef(h0)}, new_he_back); 
+		}
+	}
 }
 
 /*
@@ -31,19 +105,21 @@ void Halfedge_Mesh::linear_subdivide() {
 	//A2G2: linear subdivision
 
 	// For every vertex, assign its current position to vertex_positions[v]:
-
-	//(TODO)
+	for (VertexCRef v = vertices.begin(); v != vertices.end(); ++v) {
+		vertex_positions[v] = v->position;
+	}
 
     // For every edge, assign the midpoint of its adjacent vertices to edge_vertex_positions[e]:
-	// (you may wish to investigate the helper functions of Halfedge_Mesh::Edge)
-
-	//(TODO)
+	for (EdgeCRef e = edges.begin(); e != edges.end(); ++e) {
+		edge_vertex_positions[e] = e->center();
+	}
 
     // For every *non-boundary* face, assign the centroid (i.e., arithmetic mean) to face_vertex_positions[f]:
-	// (you may wish to investigate the helper functions of Halfedge_Mesh::Face)
-
-	//(TODO)
-
+	for (FaceCRef f = faces.begin(); f != faces.end(); ++f) {
+		if (!f->boundary) {
+			face_vertex_positions[f] = f->center();
+		}
+	}
 
 	//use the helper function to actually perform the subdivision:
 	catmark_subdivide_helper(vertex_positions, edge_vertex_positions, face_vertex_positions);
@@ -64,18 +140,73 @@ void Halfedge_Mesh::catmark_subdivide() {
 
 	//A2G3: Catmull-Clark Subdivision
 
-	// This routine should end up looking a lot like linear_subdivide
-	// above, with the exception that the positions are a bit trickier
-	// to compute.
+	// --- Face points ---
+	// Each non-boundary face gets a new vertex at its centroid.
+	for (FaceCRef f = faces.begin(); f != faces.end(); ++f) {
+		if (!f->boundary) {
+			face_vertex_positions[f] = f->center();
+		}
+	}
 
-	//Overview of the rules:
-	// https://en.wikipedia.org/wiki/Catmull%E2%80%93Clark_subdivision_surface
+	// --- Edge points ---
+	// For interior edges: average of the two endpoints and the two adjacent face points.
+	// For boundary edges: simple midpoint of the two endpoints.
+	for (EdgeCRef e = edges.begin(); e != edges.end(); ++e) {
+		HalfedgeCRef h  = e->halfedge;
+		HalfedgeCRef ht = h->twin;
+		Vec3 v0 = h->vertex->position;
+		Vec3 v1 = ht->vertex->position;
 
-	// Faces
+		if (e->on_boundary()) {
+			// Boundary rule: midpoint of endpoints
+			edge_vertex_positions[e] = (v0 + v1) / 2.0f;
+		} else {
+			// Interior rule: (v0 + v1 + face_point_0 + face_point_1) / 4
+			Vec3 f0 = face_vertex_positions.at(h->face);
+			Vec3 f1 = face_vertex_positions.at(ht->face);
+			edge_vertex_positions[e] = (v0 + v1 + f0 + f1) / 4.0f;
+		}
+	}
 
-	// Edges
+	// --- Vertex points ---
+	// For boundary vertices: (1/8)*prev_boundary + (6/8)*v + (1/8)*next_boundary
+	// For interior vertices: (F + 2E + (n-3)*P) / n
+	//   where F = avg of adjacent face points, E = avg of adjacent edge midpoints,
+	//   P = original vertex position, n = valence (number of adjacent faces)
+	for (VertexCRef v = vertices.begin(); v != vertices.end(); ++v) {
+		if (v->on_boundary()) {
+			// Find the two boundary edges incident to v and average their other endpoints
+			Vec3 boundary_sum = Vec3{0.0f, 0.0f, 0.0f};
+			int boundary_count = 0;
+			HalfedgeCRef h = v->halfedge;
+			do {
+				if (h->edge->on_boundary()) {
+					// The other endpoint of this edge
+					boundary_sum += h->twin->vertex->position;
+					boundary_count++;
+				}
+				h = h->twin->next;
+			} while (h != v->halfedge);
+			// Crease rule: 1/8 * sum_of_2_boundary_neighbors + 6/8 * P
+			vertex_positions[v] = (boundary_sum / 8.0f) + (6.0f / 8.0f) * v->position;
+		} else {
+			// Interior vertex: Catmull-Clark weighted average
+			// n = valence
+			int n = 0;
+			Vec3 F{0.0f, 0.0f, 0.0f}; // sum of adjacent face points
+			Vec3 E{0.0f, 0.0f, 0.0f}; // sum of adjacent edge midpoints
+			HalfedgeCRef h = v->halfedge;
+			do {
+				n++;
+				F += face_vertex_positions.at(h->face);
+				E += (v->position + h->twin->vertex->position) / 2.0f;
+				h = h->twin->next;
+			} while (h != v->halfedge);
 
-	// Vertices
+			float fn = static_cast<float>(n);
+			vertex_positions[v] = (F / fn + 2.0f * E / fn + (fn - 3.0f) * v->position) / fn;
+		}
+	}
 
 	
 	//Now, use the provided helper function to actually perform the subdivision:
@@ -109,54 +240,144 @@ bool Halfedge_Mesh::loop_subdivide() {
 	//if execution reaches this point, all non-boundary faces are triangular, so proceed to subdivide:
 
 	// A2Go1: Loop subdivision.
-	// Optional! Only one of {A2Go1, A2Go2, A2Go3} is required!
-
-	// Each vertex and edge of the original mesh can be associated with a
-	// vertex in the new (subdivided) mesh. Therefore, our strategy for
-	// computing the subdivided vertex locations is to *first* compute the
-	// new positions using the connectivity of the original (coarse) mesh.
-	// Navigating this mesh will be much easier than navigating the new
-	// subdivided (fine) mesh, which has more elements to traverse.  We
-	// will then assign vertex positions in the new mesh based on the
-	// values we computed for the original mesh.
-    
-	// Compute new positions for all the vertices in the input mesh using
-	// the Loop subdivision rule and store them in vertex_new_pos.
-	[[maybe_unused]]
-	std::unordered_map< VertexRef, Vec3 > vertex_new_pos;
-	    
-	// Next, compute the subdivided vertex positions associated with edges, and
-	// store them in edge_new_pos:
-	[[maybe_unused]]
-	std::unordered_map< EdgeRef, Vec3 > edge_new_pos;
-    
-	// Next, we're going to split every edge in the mesh, in any order, placing
-	// the split vertex at the recorded edge_new_pos.
-	//
-	// We'll later need to distinguish edges that align with old edges to new
-	// edges added by splitting. So store references to the new edges:
-	[[maybe_unused]]
-	std::vector< EdgeRef > new_edges;
-
-	// Also note that in this loop, we only want to iterate over edges of the
-	// original mesh. Otherwise, we'll end up splitting edges that we just split
-	// (and the loop will never end!)
-
-	// Now flip any new edge that connects a new and old vertex.
-	// To check if a vertex is new, you can use a simple helper that
-	// checks if has an entry in vertex_new_pos:
-	[[maybe_unused]]
-	auto is_new = [&vertex_new_pos](VertexRef v) -> bool {
-		return !vertex_new_pos.count(v);
-	};
-
-    // Now flip any new edge that connects an old and new vertex.
-    
-    // Finally, copy new vertex positions into the Vertex::position.
-
-
-
-
+	// ---------------------------------------------------------------
+	// Step 1: Compute new positions for ALL OLD vertices using the
+	//         Loop subdivision weighting rule, store in vertex_new_pos.
+	// ---------------------------------------------------------------
+	std::unordered_map<VertexRef, Vec3> vertex_new_pos;
+ 
+	for (VertexRef v = vertices.begin(); v != vertices.end(); ++v) {
+		uint32_t n = v->degree();
+ 
+		if (v->on_boundary()) {
+			// Boundary rule: 1/8*(left + right) + 3/4*v
+			Vec3 boundary_sum{0.0f, 0.0f, 0.0f};
+			HalfedgeRef h = v->halfedge;
+			do {
+				if (h->edge->on_boundary()) {
+					boundary_sum += h->twin->vertex->position;
+				}
+				h = h->twin->next;
+			} while (h != v->halfedge);
+			vertex_new_pos[v] = (1.0f / 8.0f) * boundary_sum + (3.0f / 4.0f) * v->position;
+		} else {
+			// Interior rule: (1 - n*beta)*v + beta*sum_of_neighbors
+			// Warren's formula: beta = 3/16 if n==3, else 3/(8n)
+			float beta = (n == 3) ? (3.0f / 16.0f) : (3.0f / (8.0f * float(n)));
+ 
+			Vec3 neighbor_sum{0.0f, 0.0f, 0.0f};
+			HalfedgeRef h = v->halfedge;
+			do {
+				neighbor_sum += h->twin->vertex->position;
+				h = h->twin->next;
+			} while (h != v->halfedge);
+ 
+			vertex_new_pos[v] = (1.0f - float(n) * beta) * v->position + beta * neighbor_sum;
+		}
+	}
+ 
+	// ---------------------------------------------------------------
+	// Step 2: Compute positions for new edge-midpoint vertices using
+	//         the Loop edge rule, store in edge_new_pos.
+	// ---------------------------------------------------------------
+	std::unordered_map<EdgeRef, Vec3> edge_new_pos;
+ 
+	for (EdgeRef e = edges.begin(); e != edges.end(); ++e) {
+		HalfedgeRef h = e->halfedge;
+		HalfedgeRef t = h->twin;
+ 
+		if (e->on_boundary()) {
+			// Boundary rule: simple midpoint
+			edge_new_pos[e] = (h->vertex->position + t->vertex->position) / 2.0f;
+		} else {
+			// Interior rule: 3/8*(A+B) + 1/8*(C+D)
+			// A,B = endpoints; C,D = opposite vertices of the two adjacent triangles
+			Vec3 A = h->vertex->position;
+			Vec3 B = t->vertex->position;
+			Vec3 C = h->next->next->vertex->position;
+			Vec3 D = t->next->next->vertex->position;
+			edge_new_pos[e] = (3.0f / 8.0f) * (A + B) + (1.0f / 8.0f) * (C + D);
+		}
+	}
+ 
+	// ---------------------------------------------------------------
+	// Step 3: Split every OLD edge. Snapshot the last old edge first
+	//         so newly-created edges are not processed.
+	//         Place each new midpoint vertex at its precomputed position.
+	// ---------------------------------------------------------------
+	std::unordered_set<VertexRef> is_new_vertex;
+	std::vector<EdgeRef> new_cross_edges;
+ 
+	// Record all original edge ids BEFORE any splits. After bisect_edge,
+	// the original EdgeRef is kept as one half (A->v) and a brand-new EdgeRef
+	// is created for the other half (v->B). That new half-edge is NOT in
+	// old_edge_ids, so we can use this set to distinguish old-edge halves
+	// from true cross-edges.
+	std::unordered_set<uint32_t> old_edge_ids;
+	for (EdgeRef e = edges.begin(); e != edges.end(); ++e) {
+		old_edge_ids.insert(e->id);
+	}
+ 
+	EdgeRef last_old_edge = std::prev(edges.end());
+ 
+	for (EdgeRef e = edges.begin(); ; ++e) {
+		Vec3 new_pos = edge_new_pos.at(e);
+ 
+		// bisect_edge (called inside split_edge) keeps the original EdgeRef e
+		// as the A->v half, and creates a brand-new EdgeRef (call it e2) for
+		// the v->B half. vm->halfedge is set to h2, which lies on e2.
+		// So after split_edge returns, v_new->halfedge->edge == e2 (new, not
+		// in old_edge_ids), while e itself is still in old_edge_ids.
+		// We must skip BOTH e and e2 — only e0/e1 (the diagonal cross-cuts) are
+		// the edges we want to flip.
+		auto result = split_edge(e);
+		if (result.has_value()) {
+			VertexRef v_new = result.value();
+			v_new->position = new_pos;
+			is_new_vertex.insert(v_new);
+ 
+			// e2 is the other old-edge half: it lives on v_new->halfedge
+			// (bisect_edge sets vm->halfedge = h2 which is on e2).
+			EdgeRef e2 = v_new->halfedge->edge;
+ 
+			HalfedgeRef h = v_new->halfedge;
+			do {
+				EdgeRef ei = h->edge;
+				// Skip the two old-edge halves: e (still has its original id,
+				// so in old_edge_ids) and e2 (new id but is the bisected half,
+				// not a cross-edge — identified explicitly above).
+				if (!old_edge_ids.count(ei->id) && ei != e2) {
+					new_cross_edges.push_back(ei);
+				}
+				h = h->twin->next;
+			} while (h != v_new->halfedge);
+		}
+ 
+		if (e == last_old_edge) break;
+	}
+ 
+	// ---------------------------------------------------------------
+	// Step 4: Flip every new cross-edge that connects one old vertex
+	//         and one new vertex. This gives the correct Loop topology.
+	// ---------------------------------------------------------------
+	for (EdgeRef e : new_cross_edges) {
+		VertexRef va = e->halfedge->vertex;
+		VertexRef vb = e->halfedge->twin->vertex;
+		bool a_new = is_new_vertex.count(va) > 0;
+		bool b_new = is_new_vertex.count(vb) > 0;
+		if (a_new != b_new) {
+			flip_edge(e);
+		}
+	}
+ 
+	// ---------------------------------------------------------------
+	// Step 5: Write the precomputed positions back to the old vertices.
+	//         (New vertices were already positioned in Step 3.)
+	// ---------------------------------------------------------------
+	for (auto& [v, pos] : vertex_new_pos) {
+		v->position = pos;
+	}
+ 
 	return true;
 }
 
@@ -196,20 +417,53 @@ struct Edge_Record {
 	Edge_Record() {
 	}
 	Edge_Record(std::unordered_map<uint32_t, Mat4>& VQ, Halfedge_Mesh::EdgeRef e) : edge(e) {
-		
-		// Compute the combined quadric from the edge endpoints.
-        // -> Build the 3x3 linear system whose solution minimizes the quadric error
-        //    associated with these two endpoints.
-        // -> Use this system to solve for the optimal position, and store it in
-        //    Edge_Record::optimal.
-        // -> Also store the cost associated with collapsing this edge in
-        //    Edge_Record::cost.
+		// Combined quadric for this edge = sum of the two endpoint quadrics
+		Halfedge_Mesh::VertexRef v0 = e->halfedge->vertex;
+		Halfedge_Mesh::VertexRef v1 = e->halfedge->twin->vertex;
+		Mat4 Q = VQ.at(v0->id) + VQ.at(v1->id);
+ 
+		// Try to solve the 3x3 linear system:
+		//   [Q[0][0] Q[1][0] Q[2][0]] [x]   [-Q[3][0]]
+		//   [Q[0][1] Q[1][1] Q[2][1]] [y] = [-Q[3][1]]
+		//   [Q[0][2] Q[1][2] Q[2][2]] [z]   [-Q[3][2]]
+		// (Mat4 is column-major: Q[col][row])
+		Mat4 A = Q;
+		// Zero out the 4th row and column to isolate the 3x3 system,
+		// then set the bottom-right to 1 so it's invertible independently.
+		A[0][3] = 0.0f; A[1][3] = 0.0f; A[2][3] = 0.0f; A[3][3] = 1.0f;
+		A[3][0] = 0.0f; A[3][1] = 0.0f; A[3][2] = 0.0f;
+ 
+		float det = A.det();
+		if (std::abs(det) > 1e-8f) {
+			// Solvable: optimal position minimizes quadric error
+			Mat4 Ainv = A.inverse();
+			Vec4 rhs = Vec4{-Q[3][0], -Q[3][1], -Q[3][2], 1.0f};
+			Vec4 sol  = Ainv * rhs;
+			optimal = Vec3{sol.x, sol.y, sol.z};
+		} else {
+			// Degenerate: fall back to whichever endpoint (or midpoint) has lower cost
+			Vec3 mid = (v0->position + v1->position) / 2.0f;
+			auto cost3 = [&](Vec3 p) -> float {
+				Vec4 hp{p.x, p.y, p.z, 1.0f};
+				return dot(hp, Q * hp);
+			};
+			float c0  = cost3(v0->position);
+			float c1  = cost3(v1->position);
+			float cm  = cost3(mid);
+			if (c0 <= c1 && c0 <= cm)      optimal = v0->position;
+			else if (c1 <= c0 && c1 <= cm) optimal = v1->position;
+			else                            optimal = mid;
+		}
+ 
+		// Score = quadric error at the optimal position
+		Vec4 ho{optimal.x, optimal.y, optimal.z, 1.0f};
+		score = dot(ho, Q * ho);
 	}
 	Halfedge_Mesh::EdgeRef edge;
 	Vec3 optimal;
 	float score;
 };
-
+ 
 bool operator<(const Edge_Record& r1, const Edge_Record& r2) {
 	if (r1.score != r2.score) {
 		return (r1.score < r2.score);
@@ -218,7 +472,7 @@ bool operator<(const Edge_Record& r1, const Edge_Record& r2) {
 	Halfedge_Mesh::EdgeRef e2 = r2.edge;
 	return &*e1 < &*e2;
 }
-
+ 
 template<class T> struct MutablePriorityQueue {
 	void insert(const T& item) {
 		queue.insert(item);
@@ -237,10 +491,10 @@ template<class T> struct MutablePriorityQueue {
 	size_t size() {
 		return queue.size();
 	}
-
+ 
 	std::set<T> queue;
 };
-
+ 
 /*
  * simplify: reduce edge count through collapses
  *  ratio: proportion of original faces to retain
@@ -255,31 +509,138 @@ template<class T> struct MutablePriorityQueue {
  * Do note that this requires a working implementation of EdgeCollapse
  */
 bool Halfedge_Mesh::simplify(float ratio) {
-
+ 
 	//A2Go3: simplification
-	// Optional! Only one of {A2Go1, A2Go2, A2Go3} is required!
-
+ 
 	std::unordered_map<uint32_t, Mat4> face_quadrics;
 	std::unordered_map<uint32_t, Mat4> vertex_quadrics;
 	std::unordered_map<uint32_t, Edge_Record> edge_records;
 	MutablePriorityQueue<Edge_Record> queue;
+ 
+	std::cerr << "[simplify] START ratio=" << ratio
+	          << " faces=" << faces.size()
+	          << " edges=" << edges.size()
+	          << " verts=" << vertices.size() << std::endl;
+ 
+	// ---------------------------------------------------------------
+	// Step 1: Compute a quadric for each non-boundary face.
+	// ---------------------------------------------------------------
+	for (FaceRef f = faces.begin(); f != faces.end(); ++f) {
+		if (f->boundary) continue;
+ 
+		Vec3 n = f->normal().unit();
+		float d = -dot(n, f->halfedge->vertex->position);
+		Vec4 p{n.x, n.y, n.z, d};
+ 
+		Mat4 K;
+		for (int col = 0; col < 4; ++col) {
+			for (int row = 0; row < 4; ++row) {
+				K[col][row] = p[row] * p[col];
+			}
+		}
+		face_quadrics[f->id] = K;
+	}
+	std::cerr << "[simplify] Step 1 done: " << face_quadrics.size() << " face quadrics" << std::endl;
+ 
+	// ---------------------------------------------------------------
+	// Step 2: Compute each vertex's quadric = sum of incident face quadrics.
+	// ---------------------------------------------------------------
+	for (VertexRef v = vertices.begin(); v != vertices.end(); ++v) {
+		Mat4 Q = Mat4::Zero;
+		HalfedgeRef h = v->halfedge;
+		do {
+			if (!h->face->boundary) {
+				Q = Q + face_quadrics.at(h->face->id);
+			}
+			h = h->twin->next;
+		} while (h != v->halfedge);
+		vertex_quadrics[v->id] = Q;
+	}
+	std::cerr << "[simplify] Step 2 done: " << vertex_quadrics.size() << " vertex quadrics" << std::endl;
+ 
+	// ---------------------------------------------------------------
+	// Step 3: Build the priority queue — one Edge_Record per edge.
+	// ---------------------------------------------------------------
+	for (EdgeRef e = edges.begin(); e != edges.end(); ++e) {
+		Edge_Record rec(vertex_quadrics, e);
+		edge_records[e->id] = rec;
+		queue.insert(rec);
+	}
+	std::cerr << "[simplify] Step 3 done: " << queue.size() << " edges in queue" << std::endl;
+ 
+	// ---------------------------------------------------------------
+	// Step 4: Collapse loop.
+	// ---------------------------------------------------------------
+	size_t current_faces = 0;
+	for (FaceRef f = faces.begin(); f != faces.end(); ++f) {
+		if (!f->boundary) current_faces++;
+	}
+	size_t target_faces = std::max(size_t(1),
+	    static_cast<size_t>(std::round(ratio * float(current_faces))));
+ 
+	std::cerr << "[simplify] Step 4 start: current_faces=" << current_faces
+	          << " target_faces=" << target_faces << std::endl;
+ 
+	size_t iter = 0;
+	size_t collapses = 0;
+	size_t rejections = 0;
+ 
+	while (current_faces > target_faces) {
+		if (queue.size() == 0) return false;
 
-	// Compute initial quadrics for each face by writing the plane equation for
-    // the face in homogeneous coordinates. These quadrics should be stored in
-    // face_quadrics
-    // -> Compute an initial quadric for each vertex as the sum of the quadrics
-    //    associated with the incident faces, storing it in vertex_quadrics
-    // -> Build a priority queue of edges according to their quadric error cost,
-    //    i.e., by building an Edge_Record for each edge and sticking it in the
-    //    queue. You may want to use the above MutablePriorityQueue<Edge_Record> for this.
-    // -> Until reaching the target edge budget, collapse the best edge. Remember
-    //    to remove from the queue any edge that touches the collapsing edge
-    //    BEFORE it gets collapsed, and add back into the queue any edge touching
-    //    the collapsed vertex AFTER it's been collapsed. Also remember to assign
-    //    a quadric to the collapsed vertex, and to pop the collapsed edge off the
-    //    top of the queue.
+		Edge_Record best = queue.top();
+		queue.pop();
 
-    return false;
+		EdgeRef e = best.edge;
+
+		VertexRef v0 = e->halfedge->vertex;
+		VertexRef v1 = e->halfedge->twin->vertex;
+
+		uint32_t id0 = v0->id;
+		uint32_t id1 = v1->id;
+
+		// skip stale records
+		auto it = edge_records.find(e->id);
+		if (it == edge_records.end()) continue;
+		if (it->second.score != best.score) continue;
+
+		auto result = collapse_edge(e);
+		if (!result.has_value()) {
+			++rejections;
+			continue;
+		}
+
+		++collapses;
+
+		VertexRef v_new = result.value();
+		v_new->position = best.optimal;
+
+		vertex_quadrics[v_new->id] =
+			vertex_quadrics[id0] + vertex_quadrics[id1];
+
+		current_faces -= 2;
+
+		// rebuild incident edges
+		HalfedgeRef h = v_new->halfedge;
+		do {
+			EdgeRef incident = h->edge;
+			// Remove the OLD record from the queue before inserting a new one
+			auto old_it = edge_records.find(incident->id);
+			if (old_it != edge_records.end()) {
+				queue.remove(old_it->second);
+			}
+			Edge_Record rec(vertex_quadrics, incident);
+			edge_records[incident->id] = rec;
+			queue.insert(rec);
+			h = h->twin->next;
+		} while (h != v_new->halfedge);
+	}
+
+	std::cerr << "[simplify] DONE after " << iter << " iters ("
+	          << collapses << " collapses, " << rejections << " rejections). "
+	          << "final_faces=" << current_faces << std::endl;
+ 
+	return true;
 }
 
 /*

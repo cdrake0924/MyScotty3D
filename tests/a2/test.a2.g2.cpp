@@ -1,6 +1,6 @@
 #include "test.h"
 #include "geometry/halfedge.h"
-
+#include <map>
 #include <set>
 
 static void expect_linear(Halfedge_Mesh& mesh, Halfedge_Mesh const &after) {
@@ -48,6 +48,64 @@ static void expect_linear(Halfedge_Mesh& mesh, Halfedge_Mesh const &after) {
 	}
 }
 
+// Property-only checker (no expected mesh required).
+// Verifies counts, all-quad faces, and that original vertex positions are preserved.
+static void expect_linear_properties(Halfedge_Mesh& mesh) {
+	size_t numVerts = mesh.vertices.size();
+	size_t numEdges = mesh.edges.size();
+	size_t numFaces = mesh.faces.size();
+	size_t numBoundaries = mesh.n_boundaries();
+
+	size_t ce = 0;
+	size_t cf = 0;
+	for (Halfedge_Mesh::FaceRef f = mesh.faces.begin(); f != mesh.faces.end(); f++) {
+		if (!f->boundary) {
+			ce += f->degree();
+			cf += f->degree() - 1;
+		}
+	}
+
+	// Record original vertex positions keyed by id
+	std::set<std::pair<uint32_t, uint32_t>> original_ids; // just ids
+	std::map<uint32_t, Vec3> original_positions;
+	for (auto v = mesh.vertices.begin(); v != mesh.vertices.end(); v++) {
+		original_positions[v->id] = v->position;
+	}
+
+	mesh.linear_subdivide();
+
+	if (auto msg = mesh.validate()) {
+		throw Test::error("Invalid mesh: " + msg.value().second);
+	}
+
+	// All non-boundary faces must be quads
+	for (Halfedge_Mesh::FaceRef f = mesh.faces.begin(); f != mesh.faces.end(); f++) {
+		if (!f->boundary && f->degree() != 4) {
+			throw Test::error("Linear subdivision created a non-quad face!");
+		}
+	}
+
+	// Check element counts
+	if (numVerts + numEdges + numFaces - numBoundaries != mesh.vertices.size()) {
+		throw Test::error("Linear subdivision did not create the expected number of vertices!");
+	}
+	if (numEdges * 2 + ce != mesh.edges.size()) {
+		throw Test::error("Linear subdivision did not create the expected number of edges!");
+	}
+	if (numFaces + cf != mesh.faces.size()) {
+		throw Test::error("Linear subdivision did not create the expected number of faces!");
+	}
+
+	// Original vertex positions must be preserved (linear subdiv doesn't move vertices)
+	for (auto v = mesh.vertices.begin(); v != mesh.vertices.end(); v++) {
+		auto it = original_positions.find(v->id);
+		if (it == original_positions.end()) continue; // new vertex, skip
+		if ((v->position - it->second).norm() > 1e-5f) {
+			throw Test::error("Linear subdivision moved an original vertex!");
+		}
+	}
+}
+
 /*
 EDGE CASE
 
@@ -75,7 +133,6 @@ Test test_a2_g2_linear_edge_square("a2.g2.linear.edge.square", []() {
 	});
 
 	expect_linear(mesh, after);
-
 });
 
 /*
@@ -120,4 +177,103 @@ Test test_s2_g2_linear_basic_quad_cube("a2.g2.linear.basic.quad_cube", []() {
 	});
 
 	expect_linear(mesh, after);
+});
+
+/*
+EDGE CASE: single triangle face.
+A triangle subdivides into 3 quads.
+No existing vertex should move.
+*/
+Test test_a2_g2_linear_triangle("a2.g2.linear.triangle", []() {
+	Halfedge_Mesh mesh = Halfedge_Mesh::from_indexed_faces({
+		Vec3{0.0f, 0.0f, 0.0f},
+		Vec3{1.0f, 0.0f, 0.0f},
+		Vec3{0.0f, 0.0f, 1.0f}
+	},{
+		{0, 1, 2}
+	});
+	expect_linear_properties(mesh);
+});
+
+/*
+BASIC CASE: two quads sharing an edge.
+Verifies the shared edge midpoint is not double-created.
+*/
+Test test_a2_g2_linear_two_quads("a2.g2.linear.two_quads", []() {
+	Halfedge_Mesh mesh = Halfedge_Mesh::from_indexed_faces({
+		Vec3{-1.0f, 0.0f, 0.0f},
+		Vec3{ 0.0f, 0.0f, 0.0f},
+		Vec3{ 1.0f, 0.0f, 0.0f},
+		Vec3{-1.0f, 0.0f, 1.0f},
+		Vec3{ 0.0f, 0.0f, 1.0f},
+		Vec3{ 1.0f, 0.0f, 1.0f}
+	},{
+		{0, 1, 4, 3},
+		{1, 2, 5, 4}
+	});
+	expect_linear_properties(mesh);
+});
+
+/*
+STRESS CASE: applying linear_subdivide twice in a row.
+After the first pass all faces are quads; the second pass must also satisfy all invariants.
+*/
+Test test_a2_g2_linear_double_subdivide("a2.g2.linear.double_subdivide", []() {
+	Halfedge_Mesh mesh = Halfedge_Mesh::from_indexed_faces({
+		Vec3{-0.5f, 0.0f,-0.5f}, Vec3{-0.5f, 0.0f, 0.5f},
+		Vec3{ 0.5f, 0.0f,-0.5f}, Vec3{ 0.5f, 0.0f, 0.5f}
+	},{
+		{1, 3, 2, 0}
+	});
+
+	mesh.linear_subdivide();
+	if (auto msg = mesh.validate()) {
+		throw Test::error("Invalid mesh after first subdivision: " + msg.value().second);
+	}
+	for (auto f = mesh.faces.begin(); f != mesh.faces.end(); f++) {
+		if (!f->boundary && f->degree() != 4) {
+			throw Test::error("First subdivision produced non-quad face!");
+		}
+	}
+
+	expect_linear_properties(mesh);
+});
+
+/*
+BOUNDARY CASE: open mesh — a single quad with a boundary loop.
+Boundary face count must be unchanged after subdivision.
+*/
+Test test_a2_g2_linear_open_mesh("a2.g2.linear.open_mesh", []() {
+	Halfedge_Mesh mesh = Halfedge_Mesh::from_indexed_faces({
+		Vec3{0.0f, 0.0f, 0.0f},
+		Vec3{1.0f, 0.0f, 0.0f},
+		Vec3{1.0f, 0.0f, 1.0f},
+		Vec3{0.0f, 0.0f, 1.0f}
+	},{
+		{0, 1, 2, 3}
+	});
+
+	size_t boundaries_before = mesh.n_boundaries();
+	expect_linear_properties(mesh);
+
+	if (boundaries_before != mesh.n_boundaries()) {
+		throw Test::error("Linear subdivision changed the number of boundary loops!");
+	}
+});
+
+/*
+BASIC CASE: two triangles sharing an edge (flat diamond).
+Each triangle becomes 3 quads = 6 quads total.
+*/
+Test test_a2_g2_linear_two_triangles("a2.g2.linear.two_triangles", []() {
+	Halfedge_Mesh mesh = Halfedge_Mesh::from_indexed_faces({
+		Vec3{ 0.0f, 0.0f,  1.0f},
+		Vec3{ 1.0f, 0.0f,  0.0f},
+		Vec3{ 0.0f, 0.0f, -1.0f},
+		Vec3{-1.0f, 0.0f,  0.0f}
+	},{
+		{0, 1, 2},
+		{0, 2, 3}
+	});
+	expect_linear_properties(mesh);
 });
