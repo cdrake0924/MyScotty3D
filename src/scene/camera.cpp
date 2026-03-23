@@ -31,26 +31,26 @@ std::pair<Ray, float> Camera::sample_ray(RNG &rng, uint32_t px, uint32_t py) {
 	//convert sensor_pixel into normalized device coordinate
 	//should be between zero and 1
 	Vec2 ndc = Vec2(sensor_pixel.x / film.width, sensor_pixel.y / film.height);
-	std::cout << "NDC: " << ndc << std::endl;
+	// std::cout << "NDC: " << ndc << std::endl;
 
 	//map NDC to the camera sensor, should be between -0.5 and 0.5
 	Vec2 camera_sensor = Vec2(ndc.x - 0.5f, ndc.y - 0.5f);
-	std::cout << "Camera Sensor: " << camera_sensor << std::endl;
+	// std::cout << "Camera Sensor: " << camera_sensor << std::endl;
 	
 	//making the the sensor plane box from aspect ratio and vertical fov
 	const float PI = 3.1415926535f;
 	float half_height = std::tan((vertical_fov * PI / 180.0f) / 2.0f);
 	float half_width = half_height * aspect_ratio;
-	std::cout << "Half Height: " << half_height 
-			  << "Half Width: "  << half_width << std::endl;
+	// std::cout << "Half Height: " << half_height 
+	// 		  << "Half Width: "  << half_width << std::endl;
 
 	//making the target point from the camera sensor and making ray direction
 	Vec3 target = Vec3(camera_sensor.x * 2.0f * half_width,
 					   camera_sensor.y * 2.0f * half_height, float(-1));
 	
 	Vec3 ray_direction = target.unit();
-	std::cout << "Target: " << target 
-			  << "Ray Direction: "  << ray_direction << std::endl;
+	// std::cout << "Target: " << target 
+	// 		  << "Ray Direction: "  << ray_direction << std::endl;
 
 	//Build ray:
 	Ray ray;
