@@ -36,3 +36,7 @@ Test test_a3_task3_bbox_triangle_simple("a3.task3.bbox.triangle.simple", []() {
 Test test_a3_task3_bbox_triangle_simple_flat("a3.task3.bbox.triangle.simple.flat", []() {
 	check_bbox(Vec3(0, 0, 0), Vec3(1, 0, 0), Vec3(1, 0, 0));
 });
+
+Test test_a3_task3_bbox_triangle_simple_negative("a3.task3.bbox.triangle.simple.negative", []() {
+	check_bbox(Vec3(-3, -2, -1), Vec3(-1, -4, -2), Vec3(-2, -1, -5));
+});

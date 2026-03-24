@@ -54,3 +54,19 @@ Test test_a3_task2_sphere_hit_simple_second("a3.task2.sphere.hit.simple.second",
 	}
 });
 
+Test test_a3_task2_sphere_hit_simple_miss("a3.task2.sphere.hit.simple.miss", []() {
+	Ray ray = Ray(Vec3(0, 0, -2), Vec3(0, 1, 0));
+	PT::Trace ret = try_intersect(1, ray);
+	if (ret.hit) {
+		throw Test::error("Sphere intersection reported a hit when it should miss.");
+	}
+});
+
+Test test_a3_task2_sphere_hit_simple_dist_bounds_clip("a3.task2.sphere.hit.simple.dist_bounds_clip", []() {
+	Ray ray = Ray(Vec3(0, 0, -2), Vec3(0, 0, 1), Vec2(1.1f, FLT_MAX));
+	PT::Trace ret = try_intersect(1, ray);
+	if (ret.hit) {
+		throw Test::error("Sphere intersection ignored ray distance bounds.");
+	}
+});
+

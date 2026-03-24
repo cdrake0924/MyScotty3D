@@ -85,8 +85,40 @@ struct BBox {
 		// If the ray intersected the bounding box within the range given by
 		// [times.x,times.y], update times with the new intersection times.
 		// This means at least one of tmin and tmax must be within the range
+		if (empty()) return false;
 
-		return false;
+		float tmin = -FLT_MAX;
+		float tmax = FLT_MAX;
+
+		for (uint32_t axis = 0; axis < 3; axis++) {
+			float o = ray.point[axis];
+			float d = ray.dir[axis];
+			float bmin = min[axis];
+			float bmax = max[axis];
+
+			// Parallel rays only hit if origin is within this slab.
+			if (std::abs(d) < FLT_EPSILON) {
+				if (o < bmin || o > bmax) return false;
+				continue;
+			}
+
+			float inv_d = 1.0f / d;
+			float t0 = (bmin - o) * inv_d;
+			float t1 = (bmax - o) * inv_d;
+			if (t0 > t1) std::swap(t0, t1);
+
+			tmin = std::max(tmin, t0);
+			tmax = std::min(tmax, t1);
+
+			if (tmin > tmax) return false;
+		}
+
+		float hit_min = std::max(times.x, tmin);
+		float hit_max = std::min(times.y, tmax);
+		if (hit_min > hit_max) return false;
+
+		times = Vec2(hit_min, hit_max);
+		return true;
 	}
 
 	/// Get the eight corner points of the bounding box

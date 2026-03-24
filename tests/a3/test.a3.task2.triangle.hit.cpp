@@ -58,3 +58,21 @@ Test test_a3_task2_triangle_hit_simple_uv("a3.task2.triangle.hit.simple.uv", [](
 		throw Test::error("Trace does not match expected: " + diff.value());
 	}
 });
+
+Test test_a3_task2_triangle_hit_simple_miss("a3.task2.triangle.hit.simple.miss", []() {
+	Ray ray = Ray(Vec3(2, 2, -1), Vec3(0, 0, 1));
+	PT::Trace ret =
+		try_intersect(Vec3(0, 0, 0), Vec3(1, 0, 0), Vec3(0, 1, 0), Vec3(1, 0, 0), Vec3(1, 0, 0), Vec3(1, 0, 0), ray);
+	if (ret.hit) {
+		throw Test::error("Triangle intersection reported a hit when it should miss.");
+	}
+});
+
+Test test_a3_task2_triangle_hit_simple_parallel("a3.task2.triangle.hit.simple.parallel", []() {
+	Ray ray = Ray(Vec3(0, 0, 1), Vec3(1, 0, 0));
+	PT::Trace ret =
+		try_intersect(Vec3(0, 0, 0), Vec3(1, 0, 0), Vec3(0, 1, 0), Vec3(1, 0, 0), Vec3(1, 0, 0), Vec3(1, 0, 0), ray);
+	if (ret.hit) {
+		throw Test::error("Triangle intersection reported a hit for a parallel ray.");
+	}
+});

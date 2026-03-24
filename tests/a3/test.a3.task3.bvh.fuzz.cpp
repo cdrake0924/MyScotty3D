@@ -60,3 +60,23 @@ Test test_a3_task3_bvh_fuzz("a3.task3.bvh.fuzz", []() {
 		}
 	}
 });
+
+Test test_a3_task3_bvh_fuzz_stability("a3.task3.bvh.fuzz.stability", []() {
+	RNG gen(7);
+	constexpr uint32_t trials = 10;
+	constexpr uint32_t rays = 200;
+	constexpr uint32_t triangles = 1500;
+
+	for (uint32_t i = 0; i < trials; i++) {
+		uint32_t n = static_cast<uint32_t>(triangles * (gen.unit() + 0.5f));
+		Tri_Mesh mesh = random_mesh(gen, n);
+		for (uint32_t j = 0; j < rays; j++) {
+			Ray ray = random_ray(gen);
+			PT::Trace a = mesh.hit(ray);
+			PT::Trace b = mesh.hit(ray);
+			if (auto diff = Test::differs(a, b)) {
+				throw Test::error("BVH hit is not stable across repeated calls: " + diff.value());
+			}
+		}
+	}
+});

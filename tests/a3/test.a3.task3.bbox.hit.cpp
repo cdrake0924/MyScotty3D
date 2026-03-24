@@ -51,3 +51,32 @@ Test test_a3_task3_bbox_hit_simple_dist_bounds("a3.task3.bbox.hit.simple_dist_bo
 		throw Test::error("BBox detected hits when it shouldn't have because of the dist_bounds!");
 	}
 });
+
+Test test_a3_task3_bbox_hit_simple_parallel_inside("a3.task3.bbox.hit.simple.parallel.inside", []() {
+	std::vector<Vec3> verts;
+	verts.push_back(Vec3(0, 0, 0));
+	verts.push_back(Vec3(1, 1, 1));
+
+	Ray ray = Ray(Vec3(0.5f, 0.5f, -2.0f), Vec3(0, 0, 1));
+	Vec2 dist_bounds = Vec2(0.f, FLT_MAX);
+
+	if (!try_intersect(verts, ray, dist_bounds)) {
+		throw Test::error("BBox did not hit for a ray parallel to x/y slabs with origin inside.");
+	}
+});
+
+Test test_a3_task3_bbox_hit_simple_inside_origin("a3.task3.bbox.hit.simple.inside_origin", []() {
+	std::vector<Vec3> verts;
+	verts.push_back(Vec3(0, 0, 0));
+	verts.push_back(Vec3(1, 1, 1));
+
+	Ray ray = Ray(Vec3(0.5f, 0.5f, 0.5f), Vec3(1, 0, 0));
+	Vec2 dist_bounds = Vec2(0.f, FLT_MAX);
+
+	if (!try_intersect(verts, ray, dist_bounds)) {
+		throw Test::error("BBox did not hit when ray starts inside the box.");
+	}
+	if (dist_bounds.y <= 0.0f) {
+		throw Test::error("BBox hit interval for inside-origin ray has invalid exit distance.");
+	}
+});

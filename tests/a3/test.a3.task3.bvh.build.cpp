@@ -126,3 +126,12 @@ Test test_a3_task3_bvh_build_simple("a3.task3.bvh.build.simple", []() {
 	expect_bvh(verts, 2, 1);
 	expect_bvh(verts, 4, 2);
 });
+
+Test test_a3_task3_bvh_build_simple_single_leaf("a3.task3.bvh.build.simple.single_leaf", []() {
+	auto verts = std::vector{
+		Vec3{0, 0, 0}, Vec3{1, 0, 0}, Vec3{0, 1, 0},
+		Vec3{0, 0, 2}, Vec3{1, 0, 2}, Vec3{0, 1, 2},
+	};
+
+	expect_bvh(verts, 16, 2);
+});
