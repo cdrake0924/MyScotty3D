@@ -1,4 +1,3 @@
-
 #include "../test.h"
 
 #include "samplers.h"
@@ -9,39 +8,84 @@ namespace PT {
 BBox Triangle::bbox() const {
 	//A3T2 / A3T3
 
-	// TODO (PathTracer): Task 2 or 3
-    // Compute the bounding box of the triangle.
-
-    // Beware of flat/zero-volume boxes! You may need to
-    // account for that here, or later on in BBox::hit.
+    Tri_Mesh_Vert v_0 = vertex_list[v0];
+    Tri_Mesh_Vert v_1 = vertex_list[v1];
+    Tri_Mesh_Vert v_2 = vertex_list[v2];
 
     BBox box;
+    box.enclose(v_0.position);
+    box.enclose(v_1.position);
+    box.enclose(v_2.position);
+
+    // Flat triangles produce a zero-volume box along one axis which can
+    // cause BBox::hit to miss. Expand by a small epsilon to avoid this.
+    const float EPS = 1e-4f;
+    box.min -= Vec3(EPS);
+    box.max += Vec3(EPS);
+
     return box;
 }
 
 Trace Triangle::hit(const Ray& ray) const {
 	//A3T2
-	
-	// Each vertex contains a postion and surface normal
-    Tri_Mesh_Vert v_0 = vertex_list[v0];
+
+	Tri_Mesh_Vert v_0 = vertex_list[v0];
     Tri_Mesh_Vert v_1 = vertex_list[v1];
     Tri_Mesh_Vert v_2 = vertex_list[v2];
-    (void)v_0;
-    (void)v_1;
-    (void)v_2;
 
-    // TODO (PathTracer): Task 2
-    // Intersect the ray with the triangle defined by the three vertices.
+    //variables follow the spec's naming e1, e2, s, and Cramer's rule
+    Vec3 e1 = v_1.position - v_0.position; // p1 - p0
+    Vec3 e2 = v_2.position - v_0.position; // p2 - p0
+    Vec3 s  = ray.point - v_0.position;    // o  - p0
+
+    // Cramer's rule denominator (e1 x d) . e2
+    // If zero, ray is parallel to triangle (or triangle is degenerate)
+    Vec3 e1_cross_d = cross(e1, ray.dir);
+    float denom = dot(e1_cross_d, e2);
+    if (std::abs(denom) < 1e-8f) {
+        Trace ret;
+        ret.origin = ray.point;
+        ret.hit = false;
+        return ret;
+    }
+
+    float inv_denom = 1.0f / denom;
+
+    // Compute barycentric coordinate u = -(s x e2) . d / denom
+    Vec3 s_cross_e2 = cross(s, e2);
+    float u = -dot(s_cross_e2, ray.dir) * inv_denom;
+
+    // Compute barycentric coordinate v = (e1 x d) . s / denom
+    float v = dot(e1_cross_d, s) * inv_denom;
+
+    // Compute t = -(s x e2) . e1 / denom
+    float t = -dot(s_cross_e2, e1) * inv_denom;
 
     Trace ret;
     ret.origin = ray.point;
-    ret.hit = false;       // was there an intersection?
-    ret.distance = 0.0f;   // at what distance did the intersection occur?
-    ret.position = Vec3{}; // where was the intersection?
-    ret.normal = Vec3{};   // what was the surface normal at the intersection?
-                           // (this should be interpolated between the three vertex normals)
-	ret.uv = Vec2{};	   // What was the uv associated with the point of intersection?
-						   // (this should be interpolated between the three vertex uvs)
+    ret.hit = false;
+    ret.distance = 0.0f;
+    ret.position = Vec3{};
+    ret.normal = Vec3{};
+    ret.uv = Vec2{};
+
+    //barycentric validity: u >= 0, v >= 0, u+v <= 1
+    if (u < 0.0f || v < 0.0f || (u + v) > 1.0f) return ret;
+
+    //t is within the ray's valid distance range
+    if (t < ray.dist_bounds.x || t > ray.dist_bounds.y) return ret;
+
+    // w is the third barycentric coordinate (weight for v0)
+    float w = 1.0f - u - v;
+
+    ret.hit      = true;
+    ret.distance = t;
+    ret.position = ray.at(t);
+
+    // Interpolate normal and uv using barycentric coordinates
+    ret.normal = (w * v_0.normal + u * v_1.normal + v * v_2.normal).unit();
+    ret.uv     = w * v_0.uv + u * v_1.uv + v * v_2.uv;
+
     return ret;
 }
 

@@ -412,7 +412,7 @@ void Pathtracer::do_trace(RNG &rng, Tile const &tile) {
 
 				//if LOG_CAMERA_RAYS is set, add ray to the debug log with some small probability:
 				if constexpr (LOG_CAMERA_RAYS) {
-					if (log_rng.coin_flip(0.00001f)) {
+					if (log_rng.coin_flip(0.0005f)) {
 						log_ray(ray, 10.0f, Spectrum{1.0f});
 					}
 				}

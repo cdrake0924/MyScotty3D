@@ -1,4 +1,3 @@
-
 #include "shape.h"
 #include "../geometry/util.h"
 
@@ -21,22 +20,52 @@ BBox Sphere::bbox() const {
 PT::Trace Sphere::hit(Ray ray) const {
 	//A3T2 - sphere hit
 
-    // TODO (PathTracer): Task 2
-    // Intersect this ray with a sphere of radius Sphere::radius centered at the origin.
+    // Sphere centered at origin, radius = Sphere::radius
+    // Ray: r(t) = o + t*d
+    // Substituting into ||x||^2 - r^2 = 0:
+    //   ||d||^2 * t^2 + 2*(o.d)*t + ||o||^2 - r^2 = 0
+    // Since ray.dir is normalized, a = ||d||^2 = 1, simplifying to:
+    //   t^2 + 2*(o.d)*t + ||o||^2 - r^2 = 0
 
-    // If the ray intersects the sphere twice, ret should
-    // represent the first intersection, but remember to respect
-    // ray.dist_bounds! For example, if there are two intersections,
-    // but only the _later_ one is within ray.dist_bounds, you should
-    // return that one!
+    float b = 2.0f * dot(ray.point, ray.dir);
+    float c = dot(ray.point, ray.point) - radius * radius;
+
+    // discriminant = b^2 - 4c  (a=1 so simplified)
+    float disc = b * b - 4.0f * c;
 
     PT::Trace ret;
     ret.origin = ray.point;
-    ret.hit = false;       // was there an intersection?
-    ret.distance = 0.0f;   // at what distance did the intersection occur?
-    ret.position = Vec3{}; // where was the intersection?
-    ret.normal = Vec3{};   // what was the surface normal at the intersection?
-	ret.uv = Vec2{}; 	   // what was the uv coordinates at the intersection? (you may find Sphere::uv to be useful)
+    ret.hit = false;
+    ret.distance = 0.0f;
+    ret.position = Vec3{};
+    ret.normal   = Vec3{};
+    ret.uv       = Vec2{};
+
+    // Negative discriminant means no real intersection
+    if (disc < 0.0f) return ret;
+
+    float sqrt_disc = std::sqrt(disc);
+    float t1 = (-b - sqrt_disc) / 2.0f; // closer intersection
+    float t2 = (-b + sqrt_disc) / 2.0f; // farther intersection
+
+    // Pick the smallest t within dist_bounds.
+    // If t1 is out of bounds but t2 is in bounds, use t2 (ray origin inside sphere).
+    float t = -1.0f;
+    if (t1 >= ray.dist_bounds.x && t1 <= ray.dist_bounds.y) {
+        t = t1;
+    } else if (t2 >= ray.dist_bounds.x && t2 <= ray.dist_bounds.y) {
+        t = t2;
+    } else {
+        return ret; // both intersections out of bounds
+    }
+
+    ret.hit      = true;
+    ret.distance = t;
+    ret.position = ray.at(t);
+    // Normal points outward from center (origin), so just normalize the position
+    ret.normal   = ret.position.unit();
+    ret.uv       = uv(ret.normal);
+
     return ret;
 }
 
