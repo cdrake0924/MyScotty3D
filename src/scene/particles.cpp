@@ -3,22 +3,52 @@
 
 bool Particles::Particle::update(const PT::Aggregate &scene, Vec3 const &gravity, const float radius, const float dt) {
 
-	//A4T4: particle update
+	float dt_remaining = dt;
+	const float eps = 1e-6f;
+	uint32_t safety = 16;
 
-	// Compute the trajectory of this particle for the next dt seconds.
+	while (dt_remaining > eps && safety-- > 0) {
+		float speed = velocity.norm();
 
-	// (1) Build a ray representing the particle's path as if it travelled at constant velocity.
+		if (speed < eps) {
+			velocity += gravity * dt_remaining;
+			dt_remaining = 0.0f;
+			break;
+		}
 
-	// (2) Intersect the ray with the scene and account for collisions. Be careful when placing
-	// collision points using the particle radius. Move the particle to its next position.
+		Ray ray(position, velocity);
+		PT::Trace hit = scene.hit(ray);
 
-	// (3) Account for acceleration due to gravity after updating position.
+		if (hit.hit) {
+			float cos_angle = std::abs(dot(ray.dir, hit.normal));
+			float offset = (cos_angle > eps) ? (radius / cos_angle) : 0.0f;
+			float t_contact = hit.distance - offset;
 
-	// (4) Repeat until the entire time step has been consumed.
+			if (t_contact < 0.0f) {
+				velocity = velocity - 2.0f * dot(velocity, hit.normal) * hit.normal;
+				continue;
+			}
 
-	// (5) Decrease the particle's age and return 'false' if it should be removed.
+			float t_travel = t_contact / speed;
+			if (t_travel >= dt_remaining) {
+				position += velocity * dt_remaining;
+				velocity += gravity * dt_remaining;
+				dt_remaining = 0.0f;
+			} else {
+				position += ray.dir * t_contact;
+				velocity = velocity - 2.0f * dot(velocity, hit.normal) * hit.normal;
+				velocity += gravity * t_travel;
+				dt_remaining -= t_travel;
+			}
+		} else {
+			position += velocity * dt_remaining;
+			velocity += gravity * dt_remaining;
+			dt_remaining = 0.0f;
+		}
+	}
 
-	return false;
+	age -= dt;
+	return age > 0.0f;
 }
 
 void Particles::advance(const PT::Aggregate& scene, const Mat4& to_world, float dt) {
@@ -46,22 +76,15 @@ void Particles::step(const PT::Aggregate& scene, const Mat4& to_world) {
 
 	if(rate > 0.0f) {
 
-		//helpful when emitting particles:
 		float cos = std::cos(Radians(spread_angle) / 2.0f);
 
-		//will emit particle i when i == time * rate
-		//(i.e., will emit particle when time * rate hits an integer value.)
-		//so need to figure out all integers in [current_step, current_step+1) * step_size * rate
-		//compute the range:
 		double begin_t = current_step * double(step_size) * double(rate);
 		double end_t = (current_step + 1) * double(step_size) * double(rate);
 
 		uint64_t begin_i = uint64_t(std::max(0.0, std::ceil(begin_t)));
 		uint64_t end_i = uint64_t(std::max(0.0, std::ceil(end_t)));
 
-		//iterate all integers in [begin, end):
 		for (uint64_t i = begin_i; i < end_i; ++i) {
-			//spawn particle 'i':
 
 			float y = lerp(cos, 1.0f, rng.unit());
 			float t = 2 * PI_F * rng.unit();
@@ -71,7 +94,7 @@ void Particles::step(const PT::Aggregate& scene, const Mat4& to_world) {
 			Particle p;
 			p.position = to_world * Vec3(0.0f, 0.0f, 0.0f);
 			p.velocity = to_world.rotate(dir);
-			p.age = lifetime; //NOTE: could adjust lifetime based on index
+			p.age = lifetime;
 			next.push_back(p);
 		}
 	}
